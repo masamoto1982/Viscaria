@@ -6,6 +6,14 @@ the table-oriented redesign of [Ajisai](https://github.com/masamoto1982/Ajisai).
 The name is a nod to **VisiCalc**, the first spreadsheet; *Viscaria* is also a flowering
 plant, continuing Ajisai's (hydrangea) botanical lineage.
 
+## Playground
+
+A live playground is published to GitHub Pages from `web/` (a build-free static site).
+The first slice is the grid shell — square cells, selection, in-cell and formula-bar
+editing, keyboard navigation, and sheets. Exact-arithmetic formula evaluation
+(`=A1+B1`) is wired next, through the Rust core compiled to WASM (it is deliberately not
+faked in JS floats, because exactness is the point).
+
 ## What it is
 
 A program is a **document**: named tables laid out on sheets, plus a word dictionary.

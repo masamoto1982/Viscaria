@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Viscaria — Playground</title>
+  <meta name="description" content="Viscaria — an AI-first, table-oriented, exact-real spreadsheet language. Playground.">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <header class="app-bar">
+    <h1 class="brand">Viscaria</h1>
+    <p class="tagline">table-oriented · exact-real spreadsheet</p>
+  </header>
+
+  <!-- Formula bar (Google Sheets order: name box · fx · formula field). -->
+  <div class="formula-bar">
+    <input id="name-box" class="name-box" aria-label="Cell name or address" spellcheck="false" autocomplete="off">
+    <span class="fx" aria-hidden="true">fx</span>
+    <input id="formula-input" class="formula-input" aria-label="Cell content" spellcheck="false" autocomplete="off">
+  </div>
+
+  <!-- The sheet canvas; the grid is built by app.js into #grid. -->
+  <main class="canvas">
+    <section id="grid" class="grid" role="grid" aria-label="Sheet grid" tabindex="0"></section>
+  </main>
+
+  <!-- Sheet tabs (bottom, Google Sheets style). -->
+  <nav class="sheet-tabs" id="sheet-tabs" aria-label="Sheets"></nav>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

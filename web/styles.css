@@ -1,0 +1,217 @@
+/* Viscaria playground — modern CSS, flat DOM.
+   Uses: native nesting, cascade layers, oklch(), logical properties,
+   :has(), custom properties, aspect-ratio, prefers-color-scheme. */
+
+@layer reset, tokens, chrome, grid;
+
+@layer reset {
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { block-size: 100%; }
+  button, input { font: inherit; color: inherit; }
+}
+
+@layer tokens {
+  :root {
+    --cell: 2.4rem;              /* square cell edge */
+    --head: 1.6rem;              /* header band thickness */
+    --radius: 10px;
+
+    color-scheme: light dark;
+    --bg: oklch(98.5% 0.004 260);
+    --surface: oklch(100% 0 0);
+    --ink: oklch(22% 0.02 260);
+    --muted: oklch(55% 0.02 260);
+    --line: oklch(88% 0.01 260);
+    --line-strong: oklch(80% 0.02 260);
+    --head-bg: oklch(96.5% 0.005 260);
+    --accent: oklch(58% 0.16 264);
+    --accent-soft: oklch(58% 0.16 264 / 0.14);
+    --font: "Inter", ui-sans-serif, system-ui, "Hiragino Kaku Gothic ProN", Meiryo, sans-serif;
+    --mono: ui-monospace, "SF Mono", "Cascadia Code", Consolas, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: oklch(20% 0.015 260);
+      --surface: oklch(24% 0.015 260);
+      --ink: oklch(92% 0.01 260);
+      --muted: oklch(65% 0.02 260);
+      --line: oklch(34% 0.015 260);
+      --line-strong: oklch(42% 0.02 260);
+      --head-bg: oklch(27% 0.015 260);
+      --accent: oklch(72% 0.15 264);
+      --accent-soft: oklch(72% 0.15 264 / 0.22);
+    }
+  }
+}
+
+@layer chrome {
+  body {
+    font-family: var(--font);
+    color: var(--ink);
+    background: var(--bg);
+    /* One continuous chrome: header → formula bar → canvas → tabs. */
+    display: grid;
+    grid-template-rows: auto auto 1fr auto;
+    block-size: 100dvh;
+  }
+
+  .app-bar {
+    display: flex;
+    align-items: baseline;
+    gap: 0.6rem;
+    padding: 0.5rem 0.9rem;
+    background: var(--surface);
+    border-block-end: 1px solid var(--line);
+
+    & .brand { font-size: 1.05rem; font-weight: 650; letter-spacing: 0.01em; }
+    & .tagline { font-size: 0.75rem; color: var(--muted); }
+  }
+
+  .formula-bar {
+    display: flex;
+    align-items: stretch;
+    background: var(--surface);
+    border-block-end: 1px solid var(--line);
+
+    & input {
+      border: none;
+      background: transparent;
+      outline-offset: -2px;
+
+      &:focus-visible { outline: 2px solid var(--accent); }
+    }
+
+    & .name-box {
+      inline-size: 7ch;
+      text-align: center;
+      font-weight: 550;
+      border-inline-end: 1px solid var(--line);
+      padding-block: 0.4rem;
+    }
+
+    & .fx {
+      display: grid;
+      place-items: center;
+      padding-inline: 0.8rem;
+      font-family: Georgia, serif;
+      font-style: italic;
+      color: var(--muted);
+      border-inline-end: 1px solid var(--line);
+      user-select: none;
+    }
+
+    & .formula-input {
+      flex: 1;
+      font-family: var(--mono);
+      padding-inline: 0.7rem;
+    }
+  }
+
+  .canvas {
+    overflow: auto;
+    padding: clamp(0.75rem, 2vw, 1.75rem);
+    background: var(--bg);
+  }
+
+  .sheet-tabs {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.3rem 0.6rem;
+    background: var(--surface);
+    border-block-start: 1px solid var(--line);
+
+    & button {
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--muted);
+      padding: 0.25rem 0.7rem;
+      border-radius: 7px;
+      cursor: pointer;
+
+      &:hover { background: var(--head-bg); }
+      &[aria-selected="true"] { color: var(--ink); background: var(--head-bg); border-color: var(--line-strong); font-weight: 550; }
+      &.add { font-size: 1.1rem; line-height: 1; padding-inline: 0.55rem; }
+    }
+  }
+}
+
+@layer grid {
+  /* The table card floats on the canvas — the only rounded element. */
+  .grid {
+    display: grid;
+    inline-size: max-content;
+    background: var(--surface);
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius);
+    overflow: clip;
+    outline: none;
+    font-variant-numeric: tabular-nums;
+    /* columns/rows are set inline by app.js from --cols / --rows. */
+    grid-template-columns: var(--head) repeat(var(--cols), var(--cell));
+    grid-auto-rows: var(--cell);
+  }
+
+  .cell,
+  .rowhead,
+  .colhead,
+  .corner {
+    display: grid;
+    place-items: center;
+    border-inline-end: 1px solid var(--line);
+    border-block-end: 1px solid var(--line);
+    font-size: 0.82rem;
+    min-inline-size: 0;
+    overflow: hidden;
+  }
+
+  .corner,
+  .colhead,
+  .rowhead {
+    background: var(--head-bg);
+    color: var(--muted);
+    font-size: 0.72rem;
+    font-weight: 550;
+    user-select: none;
+    position: sticky;
+  }
+
+  .colhead { block-size: var(--head); inset-block-start: 0; z-index: 1; }
+  .rowhead { inset-inline-start: 0; z-index: 1; }
+  .corner  { inset: 0 auto auto 0; z-index: 2; position: sticky; }
+
+  .cell {
+    background: var(--surface);
+    padding-inline: 0.3rem;
+    cursor: cell;
+    white-space: nowrap;
+
+    /* Numbers right-align (marked by app.js); the cell is itself a grid whose
+       item placement is set by justify-items (place-items above), so override
+       that, not justify-content. */
+    &[data-kind="number"] { justify-items: end; font-family: var(--mono); }
+    &[data-kind="text"] { justify-items: start; }
+
+    &.selected {
+      outline: 2px solid var(--accent);
+      outline-offset: -2px;
+      background: var(--accent-soft);
+      z-index: 3;
+    }
+
+    &.editing {
+      outline: 2px solid var(--accent);
+      outline-offset: -2px;
+      background: var(--surface);
+      cursor: text;
+      overflow: visible;
+      white-space: pre;
+      justify-items: start;
+      padding-inline: 0.3rem;
+    }
+  }
+
+  /* Selection tints the corresponding headers via :has() — no JS bookkeeping. */
+  .grid:has(.cell.selected) { --sel: var(--accent-soft); }
+}
