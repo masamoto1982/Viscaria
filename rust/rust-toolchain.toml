@@ -1,0 +1,7 @@
+[toolchain]
+# Pinned for reproducibility: the CI Quality Gate and local `cargo fmt --check`
+# / `cargo clippy -- -D warnings` must agree exactly, so the toolchain is fixed
+# rather than tracking a moving `stable` (whose newer lints would otherwise
+# diverge from what was verified locally). Bump deliberately.
+channel = "1.94.1"
+components = ["rustfmt", "clippy"]

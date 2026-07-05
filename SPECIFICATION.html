@@ -1,0 +1,1420 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Viscaria Language Specification - the single canonical design authority for the table-oriented Ajisai language">
+    <title>Viscaria Language Specification</title>
+
+    <!--
+      Authoring rule (docs/dev/ajisai-authoring-style.md): the specification is
+      authored directly in HTML, not Markdown. Keep this page plain.
+      - Every Ajisai token is wrapped in <code> (gray background = Ajisai channel).
+      - Mathematics is set off in its own channel, typeset as LaTeX with
+        \( ... \) inline and \[ ... \] display delimiters. Without JavaScript
+        the raw LaTeX source remains visible (machine-readable fallback).
+    -->
+    <style>
+        :root {
+            --font-stack-primary: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Hiragino Kaku Gothic ProN", Meiryo, sans-serif;
+            --font-stack-mono: "SF Mono", Consolas, "Liberation Mono", Monaco, monospace;
+            --color-primary: #6b5b95;
+            --color-text: #202122;
+            --color-text-light: #54595d;
+            --border-main: solid 1px #a2a9b1;
+            --color-light: #f8f9fa;
+            --color-medium: #eaecf0;
+        }
+        * { box-sizing: border-box; }
+        body { margin: 0; font-family: var(--font-stack-primary); background: #fff; color: var(--color-text); line-height: 1.7; }
+        main { max-width: 60rem; margin: 0 auto; padding: 1.5rem 2rem 4rem; }
+        a { color: var(--color-primary); text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        h1 { font-size: 1.6rem; font-weight: 600; margin: 0.5rem 0 1rem; padding-bottom: 0.3rem; border-bottom: var(--border-main); }
+        h2 { font-size: 1.35rem; font-weight: 600; margin: 2.5rem 0 0.75rem; padding-bottom: 0.3rem; border-bottom: var(--border-main); }
+        h3 { font-size: 1.1rem; font-weight: 600; margin: 1.75rem 0 0.5rem; }
+        h4 { font-size: 1rem; font-weight: 600; margin: 1.5rem 0 0.5rem; }
+        h5 { font-size: 0.95rem; font-weight: 600; margin: 1.25rem 0 0.5rem; }
+        p { margin: 0.5rem 0 0.75rem; }
+        code { font-family: var(--font-stack-mono); font-size: 0.9em; background: var(--color-medium); padding: 0.1rem 0.3rem; border-radius: 3px; }
+        pre { background: var(--color-light); border: var(--border-main); padding: 0.75rem 1rem; overflow-x: auto; line-height: 1.5; }
+        pre code { background: none; padding: 0; font-size: 0.85rem; }
+        blockquote { margin: 1rem 0; padding: 0.25rem 1rem; border-left: 3px solid #a2a9b1; background: var(--color-light); color: var(--color-text-light); }
+        ul, ol { margin: 0.5rem 0 0.75rem; padding-left: 1.5rem; }
+        li { margin: 0.2rem 0; }
+        .ref-table-wrap { overflow-x: auto; margin: 0.75rem 0 1.25rem; }
+        .ref-table { width: 100%; border-collapse: collapse; }
+        .ref-table th, .ref-table td { border: var(--border-main); padding: 0.5rem 0.75rem; text-align: left; vertical-align: top; }
+        .ref-table th { background: var(--color-light); }
+        .draft-banner { border: 2px solid #b3261e; background: #fdf3f2; color: #7a1c15; padding: 0.75rem 1rem; margin: 1rem 0 1.5rem; }
+        .carried { border-left: 3px solid var(--color-primary); padding-left: 0.9rem; }
+    </style>
+</head>
+<body>
+<main>
+
+<h1 id="viscaria-language-specification">Viscaria Language Specification</h1>
+
+<p>Viscaria is the table-oriented Ajisai: an AI-first, exact-real spreadsheet
+language. This document is the single canonical design authority for the language. It
+descends from the vector-oriented Ajisai (the Ajisai repository), which is retained there
+for historical reference; the migration inventory is in Section 15. The language itself is
+still named <strong>Ajisai</strong> throughout this specification; <em>Viscaria</em> is the
+name of this project and its application.</p>
+
+<h2>Contents</h2>
+<ol>
+<li><a href="#1-language-identity">Language Identity</a></li>
+<li><a href="#2-specification-authority">Specification Authority</a></li>
+<li><a href="#3-formula-syntax">Formula Syntax</a></li>
+<li><a href="#4-value-model">Value Model</a></li>
+<li><a href="#5-document-and-table-model">Document and Table Model</a></li>
+<li><a href="#6-formula-evaluation">Formula Evaluation</a></li>
+<li><a href="#7-formula-words">Formula Words</a></li>
+<li><a href="#8-user-words">User Words</a></li>
+<li><a href="#9-recalculation">Recalculation</a></li>
+<li><a href="#10-value-integrity">Value Integrity</a></li>
+<li><a href="#11-error-model">Error Model</a></li>
+<li><a href="#12-semantic-plane">Semantic Plane</a></li>
+<li><a href="#13-host-boundary">Host Boundary and Presentation Layer</a></li>
+<li><a href="#14-ai-first-implementation-rules">AI-first Implementation Rules</a></li>
+<li><a href="#15-migration">Migration from the Vector-Oriented Canon</a></li>
+<li><a href="#16-conformance-checklist">Conformance Checklist</a></li>
+</ol>
+<p><a href="#appendix-a-water">Appendix A. Water on the Grid (non-normative index)</a></p>
+
+<h2 id="1-language-identity">1. Language Identity</h2>
+
+<p>Ajisai is an <strong>AI-first, table-oriented, exact-real spreadsheet language</strong>.</p>
+
+<p>A program is a <strong>document</strong>: a set of named finite <strong>tables</strong> laid out on
+canvases, together with a user <strong>word dictionary</strong>. Evaluation is
+<strong>recalculation</strong>: cells hold formulas, formulas reference other cells, ranges, and
+words, and a change propagates through the dependency graph deterministically
+(Section 9).</p>
+
+<p><strong>Flat Cell principle (normative).</strong> Structure has exactly one primary home:
+the grid. A cell holds an <em>atomic</em> value only (Section 4.1) — there are no nested
+sequence values. Collections are expressed by rows, columns, ranges, and tables;
+nested data is expressed as separate tables joined by key references.</p>
+
+<p>Every numeric value is an <strong>exact real</strong>, represented internally as a
+(possibly lazy) <strong>continued fraction</strong> (Section 4.2). Finite continued fractions
+cover the rationals; lazy continued fractions cover the algebraic irrationals admitted by
+the runtime (e.g. <code>SQRT</code>). All arithmetic is performed on the continued-fraction
+representation directly, without intermediate rounding.</p>
+
+<p>Runtime stack:</p>
+<ul>
+<li>Rust interpreter core (value model, formula evaluation, table store, recalculation)</li>
+<li>WASM boundary</li>
+<li>TypeScript GUI/runtime shell (grid presentation, editing, persistence)</li>
+</ul>
+
+<p>Ajisai is designed for mechanical reasoning, automated refactoring, and structurally
+searchable implementation. The dependency graph, cell diagnostics, and formula bodies are
+machine-readable at all times; an AI agent can read and repair a document without
+screen-scraping the grid.</p>
+
+<p>The water metaphor of the previous canon — flow, vessels, bubbles, stagnation, water
+levels, gates, conservation — carries over intact and is indexed against the normative
+mechanisms of this document in Appendix A.</p>
+
+<h2 id="2-specification-authority">2. Specification Authority</h2>
+
+<h3 id="21-canonical">2.1 Canonical</h3>
+
+<p>This document is the single canonical design authority for the Ajisai language as
+implemented by Viscaria: value model, formula semantics, table model, recalculation
+semantics, error model, and conformance requirements. Statements elsewhere
+(README, Reference, <code>docs/dev/</code>, code comments) are non-canonical.</p>
+
+<h3 id="22-non-canonical">2.2 Non-canonical</h3>
+
+<p>Display strings, GUI layout, presentation styling, host persistence formats, and any
+text marked "non-normative" are not part of language semantics. They may change without a
+specification change, subject to the constraints of Section 13.</p>
+
+<h3 id="23-semantic-firewall">2.3 Semantic Firewall</h3>
+
+<p>Observable semantics are defined exclusively in terms of <em>values</em>, their
+<em>interpretation roles</em> and <em>capabilities</em> (Section 12), and the
+<em>machine-readable protocol fields</em> named in this document. Internal representation
+choices (which scalar representation backs a value, how a table is stored, how the
+dependency graph is indexed) are never observable and must not be branched on by words or
+by external consumers. Human-readable display text is non-canonical and must not be used
+for machine decisions.</p>
+
+<h4 id="2311-exactness-transparency">2.3.1.1 User-facing exactness transparency guarantee</h4>
+
+<p>For every program expressible with the Coreword set of this document, numeric
+observation is exact: comparisons of constructible values decide definitely
+(Section 7.4), display truncation is an observation limit rather than a new value
+(Section 4.2.3), and deliberate coarsening happens only through <code>QUANTIZE</code>
+with its residual preserved (Section 7.13). A user can rely on the grid never silently
+substituting an approximation for a value.</p>
+
+<h3 id="25-authority-order">2.5 Authority order</h3>
+
+<ol>
+<li>This specification.</li>
+<li>Machine-readable contract metadata generated from it (Section 7.14).</li>
+<li>Reference documentation and the GUI, which must not contradict 1–2.</li>
+</ol>
+
+<h3 id="26-maturity">2.6 Maturity</h3>
+
+<p>This specification is under active development: the implementation is being built up
+in phases (`docs/dev/ajisai-table-oriented-language-plan.md`), and sections describing
+words or surfaces not yet implemented are normative for the target, not a claim about the
+current build. Changes are proposed and reviewed like any specification change. Where a
+section is provisional it says so.</p>
+
+<h2 id="3-formula-syntax">3. Formula Syntax</h2>
+
+<h3 id="31-token-types">3.1 Token types</h3>
+
+<p>A formula is a sequence of tokens in <strong>canonical concatenative form</strong>,
+evaluated left to right (Section 6). Token types:</p>
+
+<div class="ref-table-wrap">
+<table class="ref-table">
+<thead><tr><th>Token</th><th>Example</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td>Numeric literal</td><td><code>42</code>, <code>3/4</code>, <code>1.25</code>, <code>-7</code></td><td>An exact Scalar (Section 3.2)</td></tr>
+<tr><td>Text literal</td><td><code>'hello'</code></td><td>A Text value (Section 3.3)</td></tr>
+<tr><td>Cell reference</td><td><code>A1</code>, <code>TABLE2@B3</code></td><td>The value of another cell (Section 3.5)</td></tr>
+<tr><td>Column reference</td><td><code>[@PRICE]</code></td><td>Same-row value of a named column (Section 5.5)</td></tr>
+<tr><td>Range reference</td><td><code>A1:A10</code>, <code>[PRICE]</code>, <code>TABLE2@A1:B5</code></td><td>A rectangular region, usable only where a Range is expected (Section 3.5)</td></tr>
+<tr><td>Word</td><td><code>ADD</code>, <code>SUM</code>, <code>TAX-RATE</code></td><td>Built-in or user word invocation</td></tr>
+<tr><td>Code block</td><td><code>{ 2 MUL }</code></td><td>A formula-local executable block (Section 6.1); never a cell result</td></tr>
+<tr><td>Definition / deletion</td><td><code>DEF</code>, <code>DEL</code></td><td>User word management (Section 8); valid only in the Script surface, not inside cells</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3 id="32-numeric-literal-formats">3.2 Numeric literal formats</h3>
+
+<p>Numeric literals are convenience input forms for the same underlying exact
+representation (Section 4.2):</p>
+
+<ul>
+<li>Integer: <code>42</code>, <code>-7</code></li>
+<li>Fraction: <code>3/4</code> (reduced on read; denominator must be non-zero)</li>
+<li>Decimal: <code>1.25</code> — read exactly as the rational <code>125/100</code> reduced; no floating-point intermediate is permitted</li>
+</ul>
+
+<p>The literal style is input syntax only and is not retained for display
+(Section 4.2.3).</p>
+
+<h3 id="33-text-literals">3.3 Text literals</h3>
+
+<p>Text literals are single-quoted: <code>'hello'</code>. A quote inside text is escaped by
+doubling: <code>'it''s'</code>. Text is an immutable sequence of Unicode scalar values;
+its equality is codepoint equality.</p>
+
+<h3 id="34-serialized-forms-are-not-source-syntax">3.4 Serialized and display forms are not source syntax</h3>
+
+<p>The bracket continued-fraction serialization of Section 4.2.3 and every truncated
+display form are output surfaces only. They are not Ajisai source syntax, must not appear
+in formulas, and must not be parsed back as values.</p>
+
+<h3 id="35-cell-and-range-references">3.5 Cell and range references</h3>
+
+<ul>
+<li><strong>Local cell:</strong> <code>A1</code> — column letter(s) then row number, within the formula's own table.</li>
+<li><strong>Qualified cell:</strong> <code>TABLE2@B3</code> — the qualified-name form <code>TABLE@ADDRESS</code> reaches any table in the document (Section 5.3).</li>
+<li><strong>Column (same row):</strong> <code>[@NAME]</code> — the value in column <code>NAME</code> of the current row; valid only in a column formula (Section 5.5).</li>
+<li><strong>Range:</strong> <code>A1:A10</code> (rectangular by two corner addresses), <code>[NAME]</code> (a whole named column body), and their <code>TABLE@</code>-qualified forms. A Range is a <em>reference</em>, not a value (Section 4.1): it may appear only as the operand of a range-consuming word (Section 7.1) and can never be a cell's result.</li>
+<li><strong>Function-table application:</strong> <code>TABLE@NAME</code>, where <code>NAME</code> is a bare (unbracketed) column name of a function table, applies that function table to the preceding operands and yields the named column's value (Sections 5.6, 6.6). A bare function-table name alone applies it with its default output column. The three <code>@</code>-qualified forms are disjoint by shape: an address (<code>TABLE@B3</code>) is a cell reference, a bracketed name (<code>TABLE@[NAME]</code>) is a range, a bare name (<code>TABLE@NAME</code>) is an application.</li>
+</ul>
+
+<p><strong>Reference vocabulary is closed (normative).</strong> A bare token matching the
+cell-address grammar (letters then digits) inside a formula is a cell reference, never a
+word name. User words whose normalized name matches the address grammar cannot be defined
+(Section 8.2).</p>
+
+<h3 id="36-infix-surface-form">3.6 Infix surface form</h3>
+
+<p>The canonical form of a formula is the concatenative token sequence of Section 3.1.
+Implementations must additionally accept and display the <strong>infix surface
+form</strong>, a projection aimed at spreadsheet users:</p>
+
+<div class="ref-table-wrap">
+<table class="ref-table">
+<thead><tr><th>Infix surface</th><th>Canonical form</th></tr></thead>
+<tbody>
+<tr><td><code>=A1+B1</code></td><td><code>A1 B1 ADD</code></td></tr>
+<tr><td><code>=SUM(A1:A10)</code></td><td><code>A1:A10 SUM</code></td></tr>
+<tr><td><code>=[@PRICE]*[@QTY]</code></td><td><code>[@PRICE] [@QTY] MUL</code></td></tr>
+<tr><td><code>=IF(A1&gt;0, 'yes', 'no')</code></td><td><code>A1 0 GT 'yes' 'no' IF</code></td></tr>
+<tr><td><code>=TAX(B2)</code></td><td><code>B2 TAX</code></td></tr>
+<tr><td><code>=TRIANGLE.AREA(3, 4)</code></td><td><code>3 4 TRIANGLE@AREA</code></td></tr>
+</tbody>
+</table>
+</div>
+
+<p>Normative rules for the surface form:</p>
+
+<ul>
+<li>The infix surface is a <strong>bijective projection</strong>: every infix formula maps to exactly one canonical token sequence, and every canonical sequence expressible in the infix grammar maps back to a unique normal-form infix rendering. Semantics are defined on the canonical form only.</li>
+<li>Operator spellings map to Corewords: <code>+ - * /</code> → <code>ADD SUB MUL DIV</code>; <code>&lt; &lt;= &gt; &gt;= = &lt;&gt;</code> → <code>LT LTE GT GTE EQ NEQ</code>; <code>&amp;</code> (text) → <code>CONCAT</code>. Precedence is the conventional arithmetic precedence; parentheses group.</li>
+<li>Function-call syntax <code>NAME(arg1, arg2, …)</code> maps to <code>arg1 arg2 … NAME</code> for any built-in word, user word, or function table (default output column), so all of them are callable from the infix surface without declaration. The dot form <code>TABLE.COL(args…)</code> selects a specific output column and maps to <code>args… TABLE@COL</code> (Section 3.5).</li>
+<li>In the host grid, a cell text beginning with <code>=</code> is an infix formula; a cell text that parses as a numeric literal is a Scalar literal; any other text is a Text literal. This entry convention is a host rule (Section 13), not part of formula syntax.</li>
+<li>A canonical sequence that has no infix rendering (e.g. one using code blocks) is displayed in canonical form; the surface layer must not invent lossy renderings.</li>
+</ul>
+
+<h3 id="37-syntax-constraints">3.7 Syntax constraints</h3>
+
+<ul>
+<li>Tokens are whitespace-separated in canonical form.</li>
+<li>Word names are case-insensitive on input and normalized to upper case (Section 8.2).</li>
+<li>A formula that fails to parse is a <strong>formula error</strong>: the cell enters the error state of Section 11.1 and no value (not even NIL) is produced.</li>
+</ul>
+
+<h2 id="4-value-model">4. Value Model</h2>
+
+<h3 id="41-value-types">4.1 Cell value types</h3>
+
+<p>The result of a cell is exactly one <strong>atomic</strong> value:</p>
+
+<div class="ref-table-wrap">
+<table class="ref-table">
+<thead><tr><th>Type</th><th>Description</th></tr></thead>
+<tbody>
+<tr><td>Scalar</td><td>An exact real number, represented internally as a (possibly lazy) continued fraction (Section 4.2)</td></tr>
+<tr><td>Boolean</td><td>A definite logical truth value, <code>true</code> or <code>false</code> (Section 4.3). Not a number.</td></tr>
+<tr><td>Text</td><td>An immutable Unicode string (Section 4.4)</td></tr>
+<tr><td>NIL</td><td>The reason-carrying absence of a value (Section 4.5)</td></tr>
+<tr><td>Unknown</td><td>The logical-undecidability truth value U (Sections 4.3, 7.4.1), storable as a cell result</td></tr>
+<tr><td>Empty</td><td>The deliberate blankness of an untouched cell (Section 4.6)</td></tr>
+</tbody>
+</table>
+</div>
+
+<p><strong>There are no composite cell values.</strong> Vector, Record, CodeBlock, and
+handle types of the previous canon are not cell values (Section 15). During formula
+evaluation two additional <em>transient</em> kinds exist — CodeBlock (Section 6.1) and
+Range reference (Section 3.5) — but a formula whose final result is transient is a
+formula error (Section 6.2).</p>
+
+<h3 id="42-scalar-exact-real-continued-fraction-arithmetic">4.2 Scalar: exact-real continued-fraction arithmetic</h3>
+
+<p class="carried"><em>Carried over from the vector-oriented canon §4.2 unchanged in
+substance; only cross-references and word names are adapted (module-qualified
+<code>MATH@SQRT</code>/<code>MATH@POW</code> become the Corewords
+<code>SQRT</code>/<code>POW</code>, Section 7.3).</em></p>
+
+<p>All numeric values are exact reals represented as <strong>continued fractions</strong>
+(CF). A scalar is a sequence of integer partial quotients \([a_0;\, a_1, a_2, \dots]\),
+finite for rationals and lazy (potentially infinite) for irrationals:</p>
+
+<p class="math-display">\[ [a_0;\, a_1, a_2, \dots] \;=\; a_0 + \cfrac{1}{a_1 + \cfrac{1}{a_2 + \cfrac{1}{\ddots}}} \]</p>
+
+<h4 id="421-canonical-form">4.2.1 Canonical form</h4>
+
+<p>A continued fraction is in canonical form when:</p>
+
+<ol>
+<li>\(a_0\) is any integer.</li>
+<li>\(a_1, a_2, \dots\) are strictly positive integers.</li>
+<li>If the sequence is finite and has length \(n \ge 2\), then the last partial quotient \(a_{n-1}\) is greater than 1 (no trailing 1).</li>
+<li>The sequence terminates iff the value is rational.</li>
+</ol>
+
+<p>These rules give every real value a unique canonical CF, so equality of canonical CFs
+decides equality of values whenever the comparison terminates (Section 7.4).</p>
+
+<h4 id="422-internal-representation">4.2.2 Internal representation</h4>
+
+<p>A scalar is internally one of the following representations. Which representation is
+used is not observable; only the canonical CF sequence and its value are.</p>
+
+<ul>
+<li><strong>Rational</strong> — a finite CF, stored equivalently as either a small <code>(i64, i64)</code> reduced fraction or a <code>(BigInt, BigInt)</code> reduced fraction. Partial quotients are generated on demand by floor-division Euclidean algorithm.</li>
+<li><strong>AlgebraicSqrt</strong> — <code>SQRT</code> of a non-negative rational. The CF expansion is eventually periodic (Lagrange's theorem) and produced lazily.</li>
+<li><strong>Gosper</strong> — an unevaluated bihomographic transform \(\dfrac{a\,xy + b\,x + c\,y + d}{e\,xy + f\,x + g\,y + h}\) of one or two operand CFs, used by arithmetic (Section 7.3). Partial quotients of the result are emitted as soon as the next quotient is unambiguously determined by the current Möbius coefficients.</li>
+<li><strong>LazyCf</strong> — any other lazy CF stream (reserved for future words; not produced by the Coreword set defined in this document).</li>
+</ul>
+
+<p>Möbius coefficients used by Gosper transforms are stored as arbitrary-precision
+integers (BigInt) at all times. Implementations must not use bounded-width coefficient
+storage that can overflow during normal evaluation.</p>
+
+<h4 id="423-display-and-serialization">4.2.3 Display and serialization</h4>
+
+<p>The canonical AI-readable serialization of a scalar is the standard mathematical
+(Khinchin) <strong>bracket form</strong>:</p>
+
+<pre><code>[ a0 ; a1 , a2 , ... , a_{n-1} ]</code></pre>
+
+<p>with the integer part before the semicolon and the remaining partial quotients
+comma-separated. A lazy infinite CF is serialized by emitting partial quotients up to an
+implementation-defined display budget and terminating with the marker <code>...</code>
+before the closing bracket (e.g. <code>[ 1 ; 2 , 2 , 2 , ... ]</code>); the truncated
+display is non-canonical and must not be parsed back as an exact value.</p>
+
+<p>Parentheses are <strong>reserved for the infix surface</strong> (grouping and
+function-call syntax, Section 3.6) and never appear in the CF serialization. The bracket
+form is <strong>not</strong> Ajisai source syntax (Section 3.4) and cannot collide with
+the column-reference forms of Section 3.5, which occur only in formulas while the CF form
+occurs only in output surfaces. It appears only in display and serialization output under
+the <code>ContinuedFraction</code> interpretation role (Section 12.2) and in AI-targeted
+diagnostics. Under the <code>RawNumber</code> role a rational scalar renders as a reduced
+<code>numerator/denominator</code> (Section 12.2); the surface literal style of
+Section 3.2 is convenience input syntax only and is not retained for display.</p>
+
+<h4 id="424-equivalence-of-representations">4.2.4 Equivalence of representations</h4>
+
+<p>Two scalars are equal as values iff they produce the same canonical CF sequence. A
+<code>Rational</code> scalar and a <code>Gosper</code> or <code>AlgebraicSqrt</code>
+scalar may compare equal whenever their generated partial quotients agree at every
+position. The internal representation tag is not part of value identity and must not be
+branched on by Corewords or external consumers.</p>
+
+<h4 id="425-nearest-integer-continued-fractions-comparison-expansion">4.2.5 Nearest-integer continued fractions (comparison expansion)</h4>
+
+<p>The comparison procedure of Section 7.4.1 expands operands as nearest-integer
+continued fractions. This is an internal expansion: the <strong>regular</strong> continued
+fraction of Sections 4.2.1–4.2.4 remains the sole basis for value identity, canonical
+form, display, and serialization. The nearest-integer expansion changes only how
+comparison consumes a value and, consequently, the unit of the comparison budget
+(Section 7.4.1.1).</p>
+
+<p>The <strong>regular</strong> continued fraction (RCF) of Section 4.2.1 takes each
+partial quotient by <em>floor</em>, leaving a remainder in \([0, 1)\). The
+<strong>nearest-integer continued fraction</strong> (NICF) instead takes each partial
+quotient by <em>rounding to the nearest integer</em>, leaving a remainder in
+\((-\tfrac{1}{2}, \tfrac{1}{2}]\). An NICF is a <em>semiregular</em> continued fraction
+where each \(b_i\) is the nearest integer to the current tail, each
+\(\varepsilon_i \in \{+1, -1\}\) is the sign of the corresponding remainder, and
+\(b_i \ge 2\) for \(i \ge 1\). The NICF converges at least as fast as the RCF and on
+average meaningfully faster.</p>
+
+<p><strong>Tie-break (normative).</strong> Each partial quotient is
+\(b_i = \operatorname{round}(t)\) of the current tail \(t\), where round sends a value
+whose fractional part is exactly \(\tfrac{1}{2}\) <strong>down</strong> to the lower
+integer; equivalently the post-step remainder lies in the half-open interval
+\((-\tfrac{1}{2}, \tfrac{1}{2}]\). This makes the NICF digit sequence of every value
+deterministic, so two conforming implementations agree on it.</p>
+
+<p>NICF changes which expansion the comparison procedure consumes (Section 7.4.1.1). It
+does <strong>not</strong> change value identity or canonical form (which remain the RCF,
+Sections 4.2.1, 4.2.4), nor display and serialization (Section 4.2.3; NICF digits are
+never serialized), nor the non-observability of the internal representation tag. What
+NICF <em>does</em> make observable, indirectly, is the <strong>unit of the comparison
+budget</strong>: a budget term, and hence an <code>agreedPrefix</code> count
+(Section 4.5.0), is a <em>semiregular (NICF) term</em>.</p>
+
+<h4 id="426-numeric-error-policy">4.2.6 Numeric error policy</h4>
+
+<p>Ajisai's exactness requirement is not limited to avoiding floating-point rounding
+error. A conforming implementation must not silently turn numeric work into hidden value
+corruption through information loss, loss of significance, cancellation, truncation
+error, or overflow.</p>
+
+<ul>
+<li><strong>Rounding and truncation.</strong> Core numeric operations preserve exact values. Any finite display or observation budget is an observation limit only; it is not a new approximate value and must not be parsed back as canonical data.</li>
+<li><strong>Deliberate quantization.</strong> The only operation that maps an exact value onto a coarser grid, <code>QUANTIZE</code> (Section 7.13), is explicit in its step and emits the exact residual alongside the quantized value; the two reconstruct the input exactly (\(q + r = x\)), so quantization is a visible, lossless-in-aggregate operation rather than a silent approximation.</li>
+<li><strong>Information loss and cancellation.</strong> Algebraically equivalent values remain represented by exact scalar structures rather than by rounded samples, so subtracting near-equal values or combining large and small terms must not discard significant information as an unreported side effect.</li>
+<li><strong>Overflow.</strong> Internal integer state that participates in scalar identity or arithmetic, including Gosper/Möbius coefficients, uses arbitrary precision or an equally exact strategy. If an implementation-specific resource limit is reached, the result is a diagnosed execution/resource failure, not wraparound.</li>
+<li><strong>Undecidable observation.</strong> When a comparison or other observation cannot decide within its budget, the result is the logical <code>UNKNOWN</code> (Section 7.4.1), not a rounded Boolean guess.</li>
+</ul>
+
+<h4 id="427-admitted-exact-real-domain">4.2.7 Admitted exact-real domain of the Coreword set</h4>
+
+<p><strong>Definition (admitted domain \(D\)).</strong> \(D\) is the smallest set of real
+numbers that</p>
+
+<ul>
+<li>contains every rational (\(\mathbb{Q} \subseteq D\));</li>
+<li>contains \(\sqrt{r}\) for every non-negative rational \(r\) — the values <code>SQRT</code> produces (Sections 4.2.2, 7.3); and</li>
+<li>is closed under the four field operations \(+, -, \times, \div\) (<code>ADD</code> <code>SUB</code> <code>MUL</code> <code>DIV</code>, with division by a non-zero element).</li>
+</ul>
+
+<p>Equivalently, \(D\) is the multiquadratic closure of \(\mathbb{Q}\). Every element of
+\(D\) has a unique normal form as a finite \(\mathbb{Q}\)-linear combination
+\(\sum_d c_d \sqrt{d}\) over distinct square-free integers \(d \ge 1\). This normal form
+is a representation detail (Sections 2.3, 4.2.4) and is not observable.</p>
+
+<p><strong>Closure and boundary of the Coreword set.</strong></p>
+
+<ul>
+<li><code>ADD</code> <code>SUB</code> <code>MUL</code> <code>DIV</code> keep \(D\) closed. Division by exact zero bubbles to NIL per Section 11.2; no element of \(D\) other than \(0\) is indistinguishable from \(0\).</li>
+<li><code>MOD</code> <code>FLOOR</code> <code>CEIL</code> <code>ROUND</code> and the six comparison relations are total on \(D\): the sign, integer part, and order of any \(D\)-element are exactly computable in finitely many steps.</li>
+<li><code>QUANTIZE</code> (Section 7.13) keeps \(D\) closed and is total on \(D\) given a positive rational step.</li>
+<li><code>SQRT</code> is defined on the rational sub-domain only. <code>SQRT</code> of a non-rational \(D\)-element is malformed use → formula error (Section 11.2); <code>SQRT</code> of a negative rational is a well-formed domain miss → Bubble/NIL. \(D\) is <em>not</em> closed under <code>SQRT</code>, and the Coreword set constructs no nested radicals or transcendentals.</li>
+<li><code>POW</code> is defined for an integer exponent only, which keeps the result in \(D\); a non-integer exponent is malformed use.</li>
+</ul>
+
+<p>Because \(D\) is exactly this multiquadratic field, equality and order over \(D\) are
+decidable exactly and totally (Section 7.4). The lazy continued-fraction machinery and
+the comparison budget exist for exact reals <em>outside</em> \(D\) (the values reserved
+by <code>LazyCf</code>) and for the user-facing <code>COMPARE-WITHIN</code>
+(Section 7.4.2); they never make a comparison of \(D\)-elements return
+<code>unknown</code>. This is the mechanism behind the transparency guarantee of
+Section 2.3.1.1.</p>
+
+<h3 id="43-boolean-and-the-truth-domain">4.3 Boolean and the truth domain</h3>
+
+<p>A Boolean is a definite logical truth value, <code>true</code> or <code>false</code>.
+It is a distinct value kind, <strong>not</strong> a number: <code>TRUE</code> is not the
+Scalar <code>1</code> and <code>FALSE</code> is not the Scalar <code>0</code>, so
+<code>TRUE 1 EQ</code> is <code>false</code>. A Boolean carries the
+<code>TruthValue</code> interpretation role (Section 12.2) and renders uniformly as
+<code>TRUE</code> or <code>FALSE</code> (display-only, non-canonical).</p>
+
+<p>The third truth value <strong>Unknown</strong> (U) is not a Boolean; it is the
+logical-undecidability value of Section 7.4.1, observed as
+<code>truthValue = unknown</code>. In the table-oriented value model U is
+<strong>storable as a cell result</strong>: a formula whose result is U displays the cell
+as undecided, with <code>diagnosis.agreedPrefix</code> available as diagnostic context
+(Section 4.5.0). Downstream cells consuming a U cell receive U and the K3 logic of
+Section 7.5 applies.</p>
+
+<h3 id="44-text">4.4 Text</h3>
+
+<p>An immutable sequence of Unicode scalar values, carrying the <code>Text</code>
+interpretation role. Text equality is codepoint equality; ordering is lexicographic by
+codepoint. Text participates in <code>CONCAT</code> and the text words of Section 7.6 and
+is never implicitly converted to or from Scalar; conversion is explicit
+(<code>TO-NUMBER</code>, <code>TO-TEXT</code>).</p>
+
+<h3 id="45-nil">4.5 NIL</h3>
+
+<p class="carried"><em>Carried over from the vector-oriented canon §4.5 unchanged in
+substance.</em></p>
+
+<p>NIL represents the absence of a value. It is produced by well-formed operations that
+yield no meaningful result (Section 11.2).</p>
+
+<h4 id="450-diagnostic-absence-metadata">4.5.0 Diagnostic absence metadata</h4>
+
+<p>NIL is a diagnostic absence value. NIL identity is separate from its reason, origin,
+recoverability, and diagnostic context. Surface display, equality, hashing, and
+serialization treat all NIL values uniformly unless a protocol explicitly asks for
+diagnostic metadata.</p>
+
+<p>For any NIL value: <code>semanticKind</code> is <code>absence</code>;
+<code>capabilities</code> includes <code>diagnosable</code> and
+<code>nilPassthrough</code>; the human-readable display text <code>NIL</code> is
+non-canonical and must not be used for machine decisions.</p>
+
+<p>NIL metadata is exposed as an optional structured <code>absence</code> object with
+these fields:</p>
+
+<div class="ref-table-wrap">
+<table class="ref-table">
+<thead><tr><th>Field</th><th>Meaning</th><th>Machine-readable contract</th></tr></thead>
+<tbody>
+<tr><td><code>reason</code></td><td>Direct reason the value became NIL</td><td>Optional lower camel case protocol string</td></tr>
+<tr><td><code>origin</code></td><td>Path by which the NIL was produced</td><td>Required lower camel case protocol string</td></tr>
+<tr><td><code>recoverability</code></td><td>UI/AI hint for next action</td><td>Required lower camel case protocol string</td></tr>
+<tr><td><code>diagnosis</code></td><td>Three-layer debug diagnosis (<code>when</code> / <code>where</code> / <code>why</code>, plus <code>summary</code>, <code>evidence</code>, <code>nextChecks</code>, and the optional <code>agreedPrefix</code> of Section 7.4.1)</td><td>Optional structured object</td></tr>
+</tbody>
+</table>
+</div>
+
+<p><code>NIL?</code> checks only whether a value is absent. It must not branch on
+<code>absence.reason</code>. Reason-specific code must use the explicit diagnostic
+accessors <code>NIL-REASON</code>, <code>NIL-ORIGIN</code>,
+<code>NIL-RECOVERABLE?</code>, <code>NIL-DIAGNOSIS</code>.</p>
+
+<h4 id="451-nil-passthrough">4.5.1 NIL passthrough</h4>
+
+<p>Operations classified as <strong>NIL-passthrough</strong> in Section 7 do not raise an
+error when a NIL operand is encountered. Instead, they produce NIL. If any operand
+consumed by the operation is NIL, the operation consumes its operands as it normally
+would and produces a single NIL result. The resulting NIL inherits the reason of the
+leftmost NIL operand that carried a reason, which makes the cause traceable through long
+dependency chains: a division by zero three tables away surfaces in the final cell with
+its original reason.</p>
+
+<p>NIL-passthrough applies to arithmetic, comparison, the unary numeric rounding words,
+and range aggregation (Sections 7.1, 7.12). It does not apply to type-conversion words or
+to <code>VENT</code> (<code>^</code>) itself, whose entire purpose is to react to NIL.</p>
+
+<h4 id="452-nil-versus-unknown">4.5.2 NIL versus Unknown</h4>
+
+<p>NIL and the logical truth value <code>Unknown</code> (U, Section 7.5) are distinct and
+must not be conflated. <strong>NIL is an operational absence</strong>: a diagnostic
+bubble that records <em>why</em> a value is missing. <strong>U is a logical
+undecidability</strong>: a definite member of the three-valued truth domain that records
+that a proposition could not be settled true or false. When NIL and U meet in the same
+operation, <strong>NIL takes priority</strong>: the reason-bearing operational
+information is never erased by the logical value, unless an absorbing definite operand
+(<code>false</code> for <code>AND</code>, <code>true</code> for <code>OR</code>) settles
+the result first.</p>
+
+<h3 id="46-empty">4.6 Empty</h3>
+
+<p><strong>Empty</strong> is the value of a cell that has no content: never edited, or
+cleared. Empty is distinct from NIL:</p>
+
+<ul>
+<li><strong>Empty is deliberate blankness.</strong> It carries no diagnosis and no reason. It is the spreadsheet-conventional state of an untouched grid.</li>
+<li><strong>NIL is a failed computation.</strong> It carries diagnostic metadata (Section 4.5.0).</li>
+</ul>
+
+<p>Normative behavior:</p>
+
+<ul>
+<li>Range aggregations <strong>skip</strong> Empty cells (Section 7.1): <code>SUM</code> over a column with blanks sums the present values. <code>COUNT</code> counts non-Empty cells.</li>
+<li>Direct reference to an Empty cell inside arithmetic, comparison, or logic is a well-formed domain miss and produces NIL with <code>reason = emptyCell</code> (Section 11.2) — silent coercion of blank to <code>0</code> is prohibited, because it is precisely the class of spreadsheet bug this language exists to remove. A formula that wants blank-as-zero writes it explicitly: <code>A1 ^ 0</code> (Section 7.7).</li>
+<li><code>EMPTY?</code> tests Emptiness. <code>NIL?</code> of Empty is <code>false</code>.</li>
+<li>A formula cannot <em>produce</em> Empty; only the host can set a cell to Empty by clearing it. Empty is a cell state, not a computable result.</li>
+</ul>
+
+<h2 id="5-document-and-table-model">5. Document and Table Model</h2>
+
+<h3 id="51-document">5.1 Document</h3>
+
+<p>A <strong>document</strong> is the unit of persistence, naming, and sharing. It
+consists of:</p>
+
+<ul>
+<li>a set of <strong>tables</strong> (Section 5.2), each assigned to one <strong>sheet</strong>;</li>
+<li>a set of <strong>sheets</strong> — presentation canvases carrying table placement, ordered as tabs; and</li>
+<li>one user <strong>word dictionary</strong> (Section 8), owned by the document.</li>
+</ul>
+
+<p>Sheets are a presentation grouping only (Section 13.2): moving a table between sheets
+changes no reference and no value. The language core observes the document as
+"a set of tables plus a dictionary".</p>
+
+<h3 id="52-tables">5.2 Tables</h3>
+
+<ul>
+<li>A table is a named finite grid of cells with a fixed current size (rows × columns), growable by explicit host action. The default table of a new document is <code>TABLE1</code>.</li>
+<li><strong>Table names are unique within the document</strong> (normative), normalized like word names (Section 8.2). Renaming a table rewrites all references to it atomically (host-mediated, Section 13).</li>
+<li>A table may declare a <strong>header row</strong> whose Text cells name the columns. Column names are unique within their table and enable the <code>[@NAME]</code> / <code>[NAME]</code> reference forms (Section 3.5).</li>
+<li>Each column may carry a <strong>column formula</strong> (Section 5.5) and a <strong>format</strong> (Section 10.1); each table may carry <strong>invariants</strong> (Section 10.2).</li>
+</ul>
+
+<h3 id="53-addresses-and-references">5.3 Addresses and references</h3>
+
+<ul>
+<li>Cell addresses use the A1 convention: column letters (<code>A</code>–<code>Z</code>, <code>AA</code>–…) then 1-based row number. Addresses are positional and refer to the grid slot, not to a value identity.</li>
+<li>The qualified form <code>TABLE@A1</code> (and <code>TABLE@[NAME]</code>, <code>TABLE@A1:B5</code>) reaches any table in the document. Within a table's own formulas the qualifier is optional.</li>
+<li>Structural edits (row/column insertion and deletion) rewrite affected references in formulas, following spreadsheet convention; a reference whose target is deleted becomes a formula error (Section 11.1), not a silently shifted reference.</li>
+</ul>
+
+<h3 id="54-ranges-are-references">5.4 Ranges are references, not values</h3>
+
+<p>A Range denotes a rectangular region of one table. It exists only during formula
+evaluation as the operand of a range-consuming word (Section 7.1). It cannot be stored in
+a cell, returned by a formula, or bound as a user-word result. This closes the structural
+ambiguity that sank the previous design: there is no value-level sequence for a grid
+region to be confused with.</p>
+
+<p>Iteration order over a range, where a word needs one (e.g. <code>FOLD</code>), is
+row-major (left to right, then top to bottom) and normative.</p>
+
+<h3 id="55-column-formulas">5.5 Column formulas</h3>
+
+<p>A column may carry a single formula that defines the value of <em>every</em> body cell
+in that column. It is the table-oriented successor of the previous canon's
+<code>MAP</code>:</p>
+
+<ul>
+<li>The formula is evaluated once per row, in a <strong>row context</strong> that resolves <code>[@NAME]</code> to the same-row cell of column <code>NAME</code>.</li>
+<li>Row evaluations are mutually independent: a column formula must not reference other rows of its own column, and may reference other columns of the same row, whole ranges of <em>other</em> columns or tables, and words. Independence makes per-row evaluation order unobservable and row-parallel evaluation semantics-preserving (Section 9.3).</li>
+<li>A cell in a column governed by a column formula cannot also hold an individual formula; the host may allow a per-cell <em>override</em> that detaches the cell from the column formula, and the detachment is machine-visible.</li>
+</ul>
+
+<h3 id="56-function-tables">5.6 Function tables</h3>
+
+<p>A table may declare one or more columns as <strong>parameter columns</strong>. A table
+with at least one parameter column is a <strong>function table</strong>: it defines a pure
+function whose arguments are the parameter columns in left-to-right column order.
+Defining an n-ary function in Ajisai means building a table with n parameter columns —
+there is no lambda form and no variable binding in the formula language
+(<code>docs/dev/ajisai-functional-foundations.md</code>, non-normative rationale).</p>
+
+<ul>
+<li><strong>Declaration.</strong> Parameter status is machine-readable column metadata. The host presents it on the header (presentation choice, Section 13.2); the metadata, not the presentation, is normative.</li>
+<li><strong>Body.</strong> Every non-parameter column of a function table is governed by a column formula (Section 5.5). Its formulas may use <code>[@PARAM]</code> for the parameter columns and <code>[@COL]</code> for the other formula columns of the same table, and may reference cells, ranges, and tables elsewhere in the document.</li>
+<li><strong>Output column.</strong> One formula column is the <strong>default output column</strong>: the rightmost formula column unless the table designates another (machine-readable metadata). A call may also name any formula column explicitly (Section 6.6) — a function table with several formula columns is thereby a function with several named results, one application per named column.</li>
+<li><strong>Example rows.</strong> The body rows of a function table are <strong>example rows</strong>: each row supplies literal values in the parameter columns (and in the <code>EXPECT</code> column, Section 10.3, if present), and its formula columns evaluate as ordinary rows under Section 5.5. Example rows are simultaneously the visible, live definition of the function (intermediate columns included), its test fixture (Section 10.3), and a memo table (Section 6.6). A function table may have zero example rows.</li>
+<li><strong>Namespace.</strong> Table names and user word names share one namespace: a table may not be named like an existing word and vice versa (Section 8.2). Both are document-unique.</li>
+</ul>
+
+<h2 id="6-formula-evaluation">6. Formula Evaluation</h2>
+
+<h3 id="61-evaluation-context">6.1 Evaluation context</h3>
+
+<p>A formula evaluates its canonical token sequence left to right over a fresh, empty
+<strong>operand stack</strong>, with access to: the built-in Corewords (Section 7), the
+document's user dictionary (Section 8), the values of referenced cells and ranges
+(resolved through the recalculation engine, Section 9), and — inside a column formula —
+the row context (Section 5.5). The operand stack is formula-local and invisible outside
+evaluation; it is an evaluation mechanism, not a language surface.</p>
+
+<p>Code blocks <code>{ … }</code> are transient values usable by higher-order Corewords
+within the formula (e.g. <code>FOLD</code>, Section 7.1). They cannot escape the
+formula.</p>
+
+<h3 id="62-single-result-rule">6.2 Single-result rule</h3>
+
+<p>A formula's evaluation must end with <strong>exactly one</strong> value on the operand
+stack, and that value must be atomic (Section 4.1). Zero results, multiple results, or a
+transient result (CodeBlock, Range) is a <strong>formula error</strong>
+(Section 11.1).</p>
+
+<h3 id="63-purity">6.3 Purity</h3>
+
+<p>Cell evaluation is effect-free. No word invocable from a formula performs input,
+output, host communication, or mutation of the document (a formula cannot write another
+cell, define a word, or alter a table). Effects exist only as host commands outside cell
+evaluation (Section 13.1). This makes recalculation free to evaluate cells in any
+dependency-respecting order, in parallel, or speculatively, with no observable
+difference (Section 9.3).</p>
+
+<h3 id="64-budgets">6.4 Budgets</h3>
+
+<p>Each cell evaluation runs under an implementation-defined <strong>execution step
+budget</strong>, and each comparison under the comparison budget of Section 7.4.1. A cell
+that exhausts its step budget produces NIL with <code>reason = stepBudgetExhausted</code>
+and a diagnosis; one runaway cell must not block the recalculation of unrelated
+cells.</p>
+
+<h3 id="65-determinism">6.5 Determinism</h3>
+
+<p>Formula evaluation is deterministic: the same document state produces the same cell
+values, diagnostics, and truth values on every conforming implementation. There is no
+observable randomness, wall-clock, or evaluation-order dependence.</p>
+
+<h3 id="66-function-table-application">6.6 Function-table application</h3>
+
+<p>Naming a function table applies it, exactly as naming a word invokes it (concatenative
+rule: naming is execution; deferral is quotation). For a function table <code>F</code>
+with parameter columns \(p_1, \dots, p_n\) (left-to-right) and a formula column
+<code>COL</code>, the application <code>a1 … an F@COL</code>:</p>
+
+<ol>
+<li><strong>consumes</strong> the top n operands, binding them positionally to \(p_1, \dots, p_n\); fewer than n available operands is malformed use → formula error;</li>
+<li><strong>evaluates</strong> <code>COL</code>'s column formula in a call context in which <code>[@PARAM]</code> resolves to the bound argument and <code>[@X]</code> for a sibling formula column <code>X</code> evaluates <code>X</code>'s formula in the same call context (on demand; each sibling at most once per application);</li>
+<li><strong>produces</strong> the single resulting value. The result must be atomic (Section 4.1); the single-result rule of Section 6.2 continues to apply to the calling formula as a whole.</li>
+</ol>
+
+<p>The bare form <code>a1 … an F</code> applies the default output column
+(Section 5.6).</p>
+
+<ul>
+<li><strong>Purity and budgets.</strong> A call is ordinary evaluation: pure (Section 6.3), deterministic (Section 6.5), and metered against the <em>calling cell's</em> step budget (Section 6.4).</li>
+<li><strong>Arguments are values.</strong> Arguments may be any atomic value, including NIL and U; no implicit passthrough applies at the call boundary — the body's words handle absence per their own contracts. Transient kinds (Range, CodeBlock) are not passable arguments; supplying one is malformed use → formula error.</li>
+<li><strong>Dependencies.</strong> The calling formula depends on the function table's definition (its column formulas, parameter declarations, and output designation) and, transitively, on every cell, range, and word the evaluated body references (Section 9.1). Example-row <em>values</em> are not dependencies of a call, except through the memo rule below.</li>
+<li><strong>Memoization by example rows (normative soundness condition).</strong> An implementation may answer an application from an example row whose parameter values equal the arguments, provided the equality of every argument with the row's parameter value is <em>decided exactly</em> (definite per Section 7.4 — always the case within the admitted domain \(D\), Section 4.2.7). If any such equality would be undecidable, the memo must not be used and the body is evaluated. By purity, the memoized answer and the evaluated answer are the same value; memoization is never observable except through resource use.</li>
+<li><strong>Higher-order use.</strong> To pass a function rather than apply it, wrap the application in a quotation: <code>[SALES] 0 { TAX ADD } FOLD</code>. There is no function-reference value kind.</li>
+<li><strong>Recursion.</strong> A body may apply its own table or tables that apply it back. Call recursion is dynamic and bounded by the step budget; it is not a reference cycle (Section 9.6).</li>
+</ul>
+
+<h2 id="7-formula-words">7. Formula Words</h2>
+
+<h3 id="70-english-word-based-naming">7.0 Naming</h3>
+
+<p>Corewords are English words or established abbreviations, normalized upper case.
+Symbolic sugar exists only where listed (e.g. <code>+</code> for <code>ADD</code> in the
+infix surface, <code>^</code> for <code>VENT</code>). Every Coreword carries contract
+metadata (Section 7.14).</p>
+
+<h3 id="71-range-aggregation">7.1 Range aggregation</h3>
+
+<p>Range-consuming words take a Range reference (Section 5.4) and produce one atomic
+value:</p>
+
+<div class="ref-table-wrap">
+<table class="ref-table">
+<thead><tr><th>Canonical</th><th>Signature</th><th>Description</th></tr></thead>
+<tbody>
+<tr><td><code>SUM</code></td><td><code>range → scalar</code></td><td>Exact sum of the numeric cells</td></tr>
+<tr><td><code>PRODUCT</code></td><td><code>range → scalar</code></td><td>Exact product of the numeric cells</td></tr>
+<tr><td><code>COUNT</code></td><td><code>range → scalar</code></td><td>Count of non-Empty cells</td></tr>
+<tr><td><code>MIN</code> / <code>MAX</code></td><td><code>range → scalar | U</code></td><td>Least / greatest numeric cell; U-honest (Section 7.4.3)</td></tr>
+<tr><td><code>AVERAGE</code></td><td><code>range → scalar</code></td><td>Exact mean (<code>SUM</code> divided by <code>COUNT</code> of numeric cells); an all-Empty range is a domain miss → NIL</td></tr>
+<tr><td><code>FOLD</code></td><td><code>range init { block } → value</code></td><td>Left fold over the range in the normative order of Section 5.4</td></tr>
+<tr><td><code>COUNT-IF</code> / <code>SUM-IF</code></td><td><code>range { predicate } → scalar</code></td><td>Aggregate over the cells whose predicate yields definite <code>true</code>; a U predicate result makes the whole aggregate U (U-honesty); a NIL predicate result makes it NIL</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>Normative absence rules for aggregation, uniform across the family:</p>
+
+<ul>
+<li><strong>Empty cells are skipped</strong> (Section 4.6). They contribute nothing and do not change the result kind.</li>
+<li><strong>NIL cells propagate.</strong> If any aggregated cell is NIL, the aggregate is NIL, inheriting the leftmost (in range order) reason (Section 4.5.1). A failed value must not silently vanish from a total.</li>
+<li><strong>Non-numeric cells</strong> (Text, Boolean) in a numeric aggregation are a well-formed domain miss → NIL with <code>reason = typeMismatch</code>; <code>COUNT</code> counts them (it counts presence, not numberhood).</li>
+</ul>
+
+<h3 id="72-reserved">7.2 Reserved: view tables</h3>
+
+<p>Predicate-defined view tables (the successor of <code>FILTER</code>) are reserved for
+a later revision of this draft; their word surface is not yet specified. Until then,
+<code>COUNT-IF</code>/<code>SUM-IF</code> cover the predicate-aggregation cases.</p>
+
+<h3 id="73-arithmetic">7.3 Arithmetic</h3>
+
+<div class="ref-table-wrap">
+<table class="ref-table">
+<thead><tr><th>Canonical</th><th>Infix sugar</th><th>Description</th></tr></thead>
+<tbody>
+<tr><td><code>ADD</code></td><td><code>+</code></td><td>Exact addition</td></tr>
+<tr><td><code>SUB</code></td><td><code>-</code></td><td>Exact subtraction</td></tr>
+<tr><td><code>MUL</code></td><td><code>*</code></td><td>Exact multiplication</td></tr>
+<tr><td><code>DIV</code></td><td><code>/</code></td><td>Exact division; division by exact zero is a well-formed domain miss → Bubble/NIL (Section 11.2)</td></tr>
+<tr><td><code>MOD</code></td><td>—</td><td>Remainder on rationals; a zero modulus is malformed use → formula error (deliberate asymmetry with <code>DIV</code>)</td></tr>
+<tr><td><code>NEG</code></td><td>unary <code>-</code></td><td>Exact negation</td></tr>
+<tr><td><code>FLOOR</code> <code>CEIL</code> <code>ROUND</code></td><td>—</td><td>Directed and half-away-from-zero rounding to the integer grid, discarding the residual (see <code>QUANTIZE</code>, Section 7.13, for the residual-preserving form)</td></tr>
+<tr><td><code>SQRT</code></td><td>—</td><td>Square root of a non-negative rational (Sections 4.2.2, 4.2.7); negative rational → Bubble/NIL; non-rational operand → formula error</td></tr>
+<tr><td><code>POW</code></td><td>—</td><td>Integer power (Section 4.2.7)</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>Arithmetic operates on the continued-fraction representation directly via Gosper
+transforms (Section 4.2.2), folding pure-rational operands through the exact fraction
+fast path. All arithmetic words are NIL-passthrough (Section 7.12). Arithmetic on
+Boolean, Text, or Empty operands is a well-formed domain miss → NIL
+(<code>reason = typeMismatch</code> / <code>emptyCell</code>).</p>
+
+<h3 id="74-comparison">7.4 Comparison</h3>
+
+<p class="carried"><em>Carried over from the vector-oriented canon §7.4 with the
+stack-mode (<code>STAK</code>) and modifier material removed; the decidability core is
+unchanged.</em></p>
+
+<div class="ref-table-wrap">
+<table class="ref-table">
+<thead><tr><th>Canonical</th><th>Infix sugar</th><th>Description</th></tr></thead>
+<tbody>
+<tr><td><code>LT</code></td><td><code>&lt;</code></td><td>Less than</td></tr>
+<tr><td><code>LTE</code></td><td><code>&lt;=</code></td><td>Less than or equal</td></tr>
+<tr><td><code>GT</code></td><td><code>&gt;</code></td><td>Greater than</td></tr>
+<tr><td><code>GTE</code></td><td><code>&gt;=</code></td><td>Greater than or equal</td></tr>
+<tr><td><code>EQ</code></td><td><code>=</code></td><td>Equal</td></tr>
+<tr><td><code>NEQ</code></td><td><code>&lt;&gt;</code></td><td>Not equal</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>Comparisons return a truth value with the <code>TruthValue</code> interpretation role:
+<code>true</code> or <code>false</code>, or — when the comparison is not decidable within
+the comparison budget — <code>unknown</code> (U, the third value of the three-valued
+logic of Section 7.5).</p>
+
+<p><strong>Exactness over the admitted domain (normative).</strong> Over the admitted
+domain \(D\) of Section 4.2.7 — every value the Coreword set can construct — the six
+relations are <strong>total and exact</strong>: each returns a definite <code>true</code>
+or <code>false</code> and <strong>never</strong> <code>unknown</code>. The U outcome is
+reserved for exact reals outside \(D\) and for the explicit-budget word
+<code>COMPARE-WITHIN</code> (Section 7.4.2). For example <code>=SQRT(2)=SQRT(2)</code>
+evaluates to <code>TRUE</code> with no budget in play (Section 2.3.1.1).</p>
+
+<p>The set of comparison primitives is intentionally complete (all six standard ordering
+relations), so that an automated producer can emit the relation that matches its intent
+directly. Every relation is independently registered with contract metadata
+(Section 7.14) and is NIL-passthrough (Section 7.12). Comparison across value kinds
+(Scalar vs Text, etc.) is a well-formed domain miss → NIL, except <code>EQ</code> /
+<code>NEQ</code>, which are total across kinds (values of different kinds are simply
+unequal).</p>
+
+<h4 id="741-decidability-and-comparison-budget">7.4.1 Decidability and comparison budget</h4>
+
+<p>Comparison on continued fractions proceeds by emitting partial quotients of the two
+operands in parallel and stopping at the first index where they differ. For two finite
+CFs this always terminates. For lazy CFs, two distinct irrationals always differ at some
+finite index, but two equal irrationals never differ — the procedure does not terminate
+by itself.</p>
+
+<p>To preserve totality, every comparison runs under an implementation-defined
+<strong>partial-quotient budget</strong>. If the budget is exhausted before a difference
+is found:</p>
+
+<ul>
+<li>the comparison produces the truth value <code>unknown</code> (U), observed as <code>truthValue = unknown</code>;</li>
+<li>U is a logical truth value, not an operational absence: the comparison does <strong>not</strong> produce a <code>reason = undecidable</code> NIL, and the Bubble Rule (Section 11.2) does not apply to it;</li>
+<li>U flows into the three-valued logic of Section 7.5 directly, settled by the Kleene truth tables.</li>
+</ul>
+
+<p>The agreed-prefix length — the number of leading terms that matched before the budget
+was exhausted — is carried on the U result in the machine-readable
+<code>diagnosis.agreedPrefix</code> field (Section 4.5.0). It is diagnostic context only
+and does not change the observable <code>truthValue</code>. The budget value itself is
+not part of observable semantics; it must be high enough that distinct rationals always
+decide.</p>
+
+<h5 id="7411-nicf-accelerated-comparison">7.4.1.1 NICF-accelerated comparison</h5>
+
+<p>The comparison procedure decides the order of two operands by emitting their
+<strong>nearest-integer</strong> continued fractions (NICF, Section 4.2.5) in parallel.
+The order computed over NICF is the true order of the values: NICF never flips a decided
+order; it only moves the budget boundary at which a pair of distinct values crosses from
+U to decided, in the favorable direction.</p>
+
+<p><strong>Budget unit and <code>agreedPrefix</code>.</strong> One budget term is one
+<strong>semiregular (NICF) term</strong>, uniformly for the six relations and for
+<code>COMPARE-WITHIN</code>. The <code>agreedPrefix</code> of a U result counts matching
+NICF terms; it is a non-negative integer, monotone in the budget, <code>0</code> for
+operands that differ at the first term, and diagnostic-only. Because the budget unit is
+user-observable through <code>COMPARE-WITHIN</code>, NICF expansion is a conformance
+requirement for every comparable scalar representation (Section 4.2.2), not an optional
+optimization.</p>
+
+<h4 id="742-explicit-budget-comparison-compare-within">7.4.2 Explicit-budget comparison: <code>COMPARE-WITHIN</code></h4>
+
+<p>Signature: <code>a b budget → -1 | 0 | 1 | U</code>.</p>
+
+<p><code>COMPARE-WITHIN</code> consumes two numeric values and a positive integer
+<code>budget</code>, and emits partial quotients of \(a\) and \(b\) in parallel for at
+most <code>budget</code> steps. It produces the scalar <code>-1</code>, <code>0</code>,
+or <code>1</code> (role <code>RawNumber</code>) as the exact sign of \(a - b\) when the
+order settles, and the logical U — carrying <code>diagnosis.agreedPrefix</code> equal to
+the consumed <code>budget</code> — when it does not. For two rational operands the
+comparison always decides regardless of <code>budget</code>. It is NIL-passthrough for
+\(a\) and \(b\); a non-positive or non-integer <code>budget</code>, or a non-numeric
+operand, is malformed use → formula error. The implicit budget of the bare relations is
+an implementation-defined constant; <code>COMPARE-WITHIN</code> is the only way to
+observe or override the depth.</p>
+
+<h4 id="743-propagation-of-u-through-comparison-dependent-words">7.4.3 Propagation of U through comparison-dependent words</h4>
+
+<p>The common rule is <strong>U-honesty</strong>: when the comparison a word relies on is
+undecidable, the word must surface that undecidability rather than fabricate a decision.
+No word may treat U as <code>true</code>, as <code>false</code>, or as a malformed-input
+error.</p>
+
+<ul>
+<li><strong><code>MIN</code> and <code>MAX</code></strong> (Section 7.1) select by order. When a governing comparison does not decide within the budget, the result is U (carrying <code>agreedPrefix</code>) — the program cannot be told <em>which</em> cell is extremal when the order is unknown. They remain NIL-passthrough; NIL takes priority over U per Section 4.5.2. They short-circuit on the first undecidable pair in range order.</li>
+<li><strong><code>IF</code> and <code>COND</code></strong> (Section 7.7): a guard that yields U is not a definite <code>true</code>, so its branch does not fire; see Section 7.7 for the outcome rules.</li>
+<li><strong><code>COUNT-IF</code> / <code>SUM-IF</code></strong> (Section 7.1): a U predicate makes the whole aggregate U.</li>
+</ul>
+
+<h3 id="75-logic">7.5 Logic</h3>
+
+<p class="carried"><em>Carried over from the vector-oriented canon §7.5 unchanged in
+substance.</em></p>
+
+<div class="ref-table-wrap">
+<table class="ref-table">
+<thead><tr><th>Canonical</th><th>Infix sugar</th><th>Description</th></tr></thead>
+<tbody>
+<tr><td><code>AND</code></td><td>—</td><td>Logical AND (K3)</td></tr>
+<tr><td><code>OR</code></td><td>—</td><td>Logical OR (K3)</td></tr>
+<tr><td><code>NOT</code></td><td>—</td><td>Logical NOT (K3)</td></tr>
+<tr><td><code>TRUE</code> / <code>FALSE</code></td><td>—</td><td>Truth-value literals</td></tr>
+</tbody>
+</table>
+</div>
+
+<p><code>AND</code> <code>OR</code> <code>NOT</code> implement <strong>strong Kleene
+three-valued logic (K3)</strong> over \(\{T, F, U\}\), observed as the protocol strings
+<code>true</code> / <code>false</code> / <code>unknown</code>:</p>
+
+<div class="ref-table-wrap">
+<table class="ref-table">
+<thead><tr><th><code>AND</code></th><th>T</th><th>U</th><th>F</th></tr></thead>
+<tbody>
+<tr><td><strong>T</strong></td><td>T</td><td>U</td><td>F</td></tr>
+<tr><td><strong>U</strong></td><td>U</td><td>U</td><td>F</td></tr>
+<tr><td><strong>F</strong></td><td>F</td><td>F</td><td>F</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="ref-table-wrap">
+<table class="ref-table">
+<thead><tr><th><code>OR</code></th><th>T</th><th>U</th><th>F</th></tr></thead>
+<tbody>
+<tr><td><strong>T</strong></td><td>T</td><td>T</td><td>T</td></tr>
+<tr><td><strong>U</strong></td><td>T</td><td>U</td><td>U</td></tr>
+<tr><td><strong>F</strong></td><td>T</td><td>U</td><td>F</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="ref-table-wrap">
+<table class="ref-table">
+<thead><tr><th><code>NOT</code></th><th>result</th></tr></thead>
+<tbody>
+<tr><td><strong>T</strong></td><td>F</td></tr>
+<tr><td><strong>U</strong></td><td>U</td></tr>
+<tr><td><strong>F</strong></td><td>T</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>The absorbing elements are exact: <code>AND</code> returns F whenever either operand
+is F (even if the other is U), and <code>OR</code> returns T whenever either operand is
+T. U propagates in every other case where it appears.</p>
+
+<p><strong>Interaction with NIL.</strong> The absorbing rule also collapses NIL:
+<code>AND</code> with a definite F yields F and <code>OR</code> with a definite T yields
+T, even for a NIL operand. In all other cases involving a NIL operand the logic word
+produces NIL (preserving the leftmost reason, Section 4.5.1), and <code>NOT</code> of NIL
+is NIL. When both a NIL operand and a U operand are present and no absorbing definite
+operand settles the result, <strong>NIL takes priority</strong> (Section 4.5.2).</p>
+
+<h3 id="76-text-and-type-conversion">7.6 Text and type conversion</h3>
+
+<div class="ref-table-wrap">
+<table class="ref-table">
+<thead><tr><th>Canonical</th><th>Infix sugar</th><th>Description</th></tr></thead>
+<tbody>
+<tr><td><code>CONCAT</code></td><td><code>&amp;</code></td><td>Concatenate two Text values</td></tr>
+<tr><td><code>TEXT-LENGTH</code></td><td>—</td><td>Length of a Text in Unicode scalar values</td></tr>
+<tr><td><code>SUBSTRING</code></td><td>—</td><td><code>text start length → text</code>; out-of-range is a domain miss → NIL</td></tr>
+<tr><td><code>TO-TEXT</code></td><td>—</td><td>Render any atomic value to its canonical display Text (role-aware, Section 12.2)</td></tr>
+<tr><td><code>TO-NUMBER</code></td><td>—</td><td>Parse a Text as a numeric literal (Section 3.2); unparsable → NIL (<code>reason = parseFailure</code>)</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>The text vocabulary is intentionally minimal in this draft; extension is expected
+before adoption (plan §7 open item 3). Conversion is always explicit; no word implicitly
+coerces between Text and Scalar.</p>
+
+<h3 id="77-selection-and-absence-handling">7.7 Selection and absence handling</h3>
+
+<div class="ref-table-wrap">
+<table class="ref-table">
+<thead><tr><th>Canonical</th><th>Sugar</th><th>Description</th></tr></thead>
+<tbody>
+<tr><td><code>IF</code></td><td>—</td><td><code>guard then else → value</code>: yields <code>then</code> on definite <code>true</code>, <code>else</code> on definite <code>false</code>; a U guard yields U; a NIL guard yields NIL (NIL priority, Section 4.5.2)</td></tr>
+<tr><td><code>COND</code></td><td>—</td><td>Multi-clause selection; a clause fires only on a definite <code>true</code> guard; a U guard falls through like <code>false</code> (Section 7.4.3); if no clause fires and no else clause exists, the result is NIL (<code>reason = condExhausted</code>)</td></tr>
+<tr><td><code>VENT</code></td><td><code>^</code></td><td><code>value fallback ^</code>: if <code>value</code> is NIL, yield <code>fallback</code>; otherwise yield <code>value</code>. The one-word <code>IFERROR</code>: a pipeline receives its bubbles at exactly one visible point</td></tr>
+<tr><td><code>NIL?</code> / <code>EMPTY?</code> / <code>UNKNOWN?</code></td><td>—</td><td>Kind predicates (Sections 4.5, 4.6, 4.3); total over atomic values</td></tr>
+<tr><td><code>NIL-REASON</code> <code>NIL-ORIGIN</code> <code>NIL-RECOVERABLE?</code> <code>NIL-DIAGNOSIS</code></td><td>—</td><td>Diagnostic accessors (Section 4.5.0)</td></tr>
+</tbody>
+</table>
+</div>
+
+<p><code>IF</code> evaluates eagerly over atomic operands. Lazy branch evaluation, where
+needed, uses code-block operands: <code>guard { then… } { else… } IF-EXEC</code>; only
+the selected block is executed. <code>IF-EXEC</code> follows the same guard rules as
+<code>IF</code>.</p>
+
+<h3 id="712-nil-passthrough-words">7.12 NIL-passthrough words</h3>
+
+<p>The NIL-passthrough classification (Section 4.5.1) covers: all arithmetic words
+(Section 7.3), all comparison words (Section 7.4), the rounding words, range aggregation
+(Section 7.1, via the range rule stated there), and <code>QUANTIZE</code>
+(Section 7.13). Not NIL-passthrough: the logic words (which have their own NIL handling,
+Section 7.5), type conversion, kind predicates, diagnostic accessors, and
+<code>VENT</code>.</p>
+
+<h3 id="713-explicit-quantization-and-residual">7.13 Explicit quantization and residual</h3>
+
+<p class="carried"><em>Carried over from the vector-oriented canon §7.13 unchanged in
+substance; the stack-effect header is restated as a signature.</em></p>
+
+<p>The core numeric words keep values exact (Section 4.2.6); the only operation that
+deliberately maps a value onto a coarser grid is <code>QUANTIZE</code>. It makes that
+projection explicit in both its step and its outcome, and — unlike <code>FLOOR</code>,
+<code>CEIL</code>, and <code>ROUND</code> — it does not discard the fraction it rounds
+away. The discarded amount is emitted as an exact <em>residual</em>, so quantization
+loses nothing that is not deliberately dropped afterward.</p>
+
+<p><strong>Signature.</strong> <code>x step → q r</code>, where <code>x</code> is the
+scalar to quantize; <code>step</code> is a strictly positive rational quantum (for
+example <code>1/100</code> for a two-decimal cents grid); <code>q</code> is the quantized
+value, an exact integer multiple \(q = n \cdot \mathit{step}\); and <code>r</code> is the
+exact residual \(r = x - q\). (In a cell formula, the two results are consumed by a
+following word — commonly the format machinery of Section 10.1 or an explicit
+<code>ADD</code>/drop; a bare <code>QUANTIZE</code> as the whole formula violates the
+single-result rule of Section 6.2.)</p>
+
+<p><strong>Residual identity.</strong> For every well-formed call
+\(q + r = x\) exactly. Because <code>x</code>, <code>q</code>, and <code>r</code> are all
+exact, the pair reconstructs <code>x</code> with no loss; silent loss of significance
+cannot occur.</p>
+
+<p><strong>Rounding rule.</strong> <code>q</code> is the multiple of <code>step</code>
+nearest to <code>x</code>; a tie is resolved to the <em>even</em> multiple (banker's
+rounding). Unlike <code>ROUND</code>, whose ties break away from zero, it introduces no
+systematic bias when many half-way values are quantized, which is why it is the
+appropriate default for currency.</p>
+
+<p><strong>NIL, error, and decidability.</strong> A NIL <code>x</code> passes through to
+both outputs, carrying its reason (Section 7.12). A <code>step</code> that is not a
+strictly positive rational is malformed use → formula error, mirroring the deliberate
+asymmetry of <code>MOD</code> (Section 7.3). For <code>x</code> in the admitted domain
+\(D\) (Section 4.2.7) and rational <code>step</code>, both outputs are exact rationals
+computable in finitely many steps, so <code>QUANTIZE</code> is total on \(D\); for an
+<code>x</code> outside \(D\) whose nearest multiple cannot be decided within the
+comparison budget, both outputs project to an Undecidable Bubble/NIL (Sections 7.4.1,
+11.2) rather than guessing.</p>
+
+<p><strong>Worked example.</strong> Quantizing the exact share <code>100/3</code> to
+cents: <code>=QUANTIZE-VALUE(100/3, 1/100)</code> yields <code>3333/100</code> with
+residual <code>1/300</code> retained in the cell diagnostics (Section 10.1);
+\(q + r = 100/3\) exactly, so an allocation of a total across several parts reconciles to
+the total with no invented or lost fraction of a cent.</p>
+
+<h3 id="714-coreword-contract-metadata">7.14 Coreword contract metadata</h3>
+
+<p>Every Coreword carries machine-readable contract metadata: arity and result count
+(<code>mass</code>), NIL policy (<code>nil_policy</code>: passthrough / rejects /
+projecting), U policy (U-honest words, Section 7.4.3), and domain notes. The metadata is
+generated from this specification and is the second authority tier (Section 2.5).
+Automated tooling uses it to validate formulas, drive completion, and check test
+coverage (Section 16).</p>
+
+<h2 id="8-user-words">8. User Words</h2>
+
+<h3 id="81-definition-syntax">8.1 Definition</h3>
+
+<p>A user word is defined in the Script surface (Section 13.1), not inside a cell:</p>
+
+<pre><code>{ 8 100 / MUL } 'TAX' DEF</code></pre>
+
+<p>defines <code>TAX</code>; a cell may then use <code>=TAX(B2)</code> (infix) or
+<code>B2 TAX</code> (canonical). <code>'NAME' DEL</code> removes a definition.</p>
+
+<h3 id="82-rules">8.2 Rules</h3>
+
+<ul>
+<li>Word names are case-insensitive, normalized upper case. A name matching the cell-address grammar (Section 3.5), colliding with a Coreword, or colliding with a table name (Section 5.6) cannot be defined; table renames are refused symmetrically when they would collide with a word.</li>
+<li>The dictionary belongs to the document (Section 5.1). Words see the same evaluation context as formulas (Section 6.1) and are subject to the same purity rule (Section 6.3).</li>
+<li>A word body may leave any number of values for its caller (words compose on the operand stack); the single-result rule (Section 6.2) applies to the <em>formula</em>, not to each word.</li>
+<li>Words may reference cells and ranges. Such references participate in the dependency graph (Section 9.1): a cell using the word depends, transitively, on the cells the word reads.</li>
+<li>Recursion is permitted, bounded by the per-cell step budget (Section 6.4).</li>
+</ul>
+
+<h3 id="83-redefinition">8.3 Redefinition</h3>
+
+<p>Redefining a word invalidates every cell that depends on it (directly or through other
+words); those cells recalculate under Section 9. Redefinition is atomic: no
+recalculation observes a half-updated dictionary.</p>
+
+<h3 id="86-word-identity-and-content-addressing">8.6 Word identity and content addressing</h3>
+
+<p>A word's identity for caching and diffing purposes is the content address of its
+normalized body. Two words with identical bodies share a content identity; the identity
+is machine-readable but not observable from formulas.</p>
+
+<h2 id="9-recalculation">9. Recalculation</h2>
+
+<h3 id="91-dependency-graph">9.1 Dependency graph</h3>
+
+<p>The runtime maintains, for every cell and word, the set of cells, ranges, and words
+its formula references (forward edges) and the inverted index of dependents (reverse
+edges). A range reference creates edges from every cell in the range. The graph is
+machine-readable at all times (Section 14).</p>
+
+<h3 id="92-dirty-closure">9.2 Dirty closure and minimal recalculation</h3>
+
+<p>When a cell's formula or literal changes, a word is (re)defined, or a structural edit
+occurs, the runtime computes the <strong>dirty set</strong>: the transitive closure of
+dependents of the changed nodes over reverse edges. Only dirty cells are re-evaluated.
+Cells outside the dirty set must not be re-evaluated in a way that is observable
+(caching is an implementation choice; the values must be identical either way).</p>
+
+<h3 id="93-order-and-determinism">9.3 Evaluation order and determinism (normative)</h3>
+
+<p>Dirty cells are evaluated in a topological order of the dependency graph restricted to
+the dirty set. Cells with no dependency relation between them may be evaluated in any
+order, serially or in parallel: because cell evaluation is pure (Section 6.3) and
+deterministic (Section 6.5), <strong>the resulting document state is independent of the
+chosen order and degree of parallelism</strong>. This independence is normative; an
+implementation whose results can differ by scheduling is non-conforming.</p>
+
+<h3 id="94-reference-cycles">9.4 Reference cycles</h3>
+
+<p>A dependency cycle among cells (directly or through words and ranges) is detected
+during recalculation planning. Every cell on the cycle produces NIL with
+<code>reason = referenceCycle</code> and a diagnosis identifying the cycle's members.
+Cells that depend on the cycle receive the NIL by passthrough (Section 4.5.1). Cycle
+detection is exact: cells not on any cycle are unaffected. There is no iterative-
+calculation mode in this draft.</p>
+
+<h3 id="95-budget-isolation">9.5 Budget isolation</h3>
+
+<p>Step and comparison budgets (Section 6.4) are per-cell. A budget exhaustion in one
+cell yields that cell's NIL/U outcome and normal propagation; it must not abort the
+recalculation of cells that do not depend on it.</p>
+
+<h3 id="96-call-recursion-versus-reference-cycles">9.6 Call recursion versus reference cycles</h3>
+
+<p>Section 9.4's static cycle detection governs <strong>cell-value dependencies</strong>:
+a cell (or example-row cell) whose value transitively requires its own value. It does
+<strong>not</strong> apply to <strong>function-table call recursion</strong>
+(Section 6.6): a function table whose body applies itself (or a mutual group of tables
+applying each other) is well-formed, because each application binds fresh arguments and
+is bounded dynamically by the calling cell's step budget — exhaustion yields NIL with
+<code>reason = stepBudgetExhausted</code>, not <code>referenceCycle</code>. An
+<em>example row</em> whose own evaluation applies its table with arguments equal to that
+same row's parameters (a self-memo loop) is a genuine value cycle and is diagnosed under
+Section 9.4.</p>
+
+<h2 id="10-value-integrity">10. Value Integrity</h2>
+
+<h3 id="101-format-as-quantization">10.1 Cell and column format is quantization</h3>
+
+<p>A numeric <strong>format</strong> on a cell or column (e.g. "two decimals", "satoshi")
+is not a display-only skin. Normatively, a format with grid step <code>s</code> means the
+displayed value is <code>QUANTIZE</code> of the exact value with step <code>s</code>
+(Section 7.13), and:</p>
+
+<ul>
+<li>the <strong>exact</strong> value remains the cell's value — references, aggregation, and export read the exact value, never the displayed one;</li>
+<li>the quantization <strong>residual is preserved</strong> in the cell's machine-readable diagnostics, and the host must make "display differs from exact value" perceivable (Section 13.2);</li>
+<li>a format never changes semantics: removing a format changes only presentation.</li>
+</ul>
+
+<p>The word <code>QUANTIZE-VALUE</code> (<code>x step → q</code>, the residual moved to
+diagnostics) is provided for formulas that want the quantized value as their result while
+keeping the residual observable; it is definitionally <code>QUANTIZE</code> plus
+residual-to-diagnostics and shares its totality and error rules.</p>
+
+<h3 id="102-conserve-table-invariants">10.2 <code>CONSERVE</code>: table invariants</h3>
+
+<p class="carried"><em>Carried over from the vector-oriented canon §13.3, retargeted from
+vector parts to range parts.</em></p>
+
+<p><strong>Value conservation</strong> is the property that a transform which claims to
+preserve a numeric total preserves it exactly — the same law double-entry bookkeeping
+enforces continuously, lifted from ledgers to the grid. It is not statically inferable in
+general, so it is exposed as an explicit guard.</p>
+
+<p><strong>Word form.</strong> <code>total range CONSERVE → true</code>: when the exact
+sum of the range's numeric cells (Empty skipped, Section 7.1) equals <code>total</code>,
+the result is <code>true</code>. On a mismatch, on any NIL cell in the range, on a NIL
+total, or on an equality that cannot be <em>proven</em> within the comparison budget,
+<code>CONSERVE</code> is a <strong>formula error</strong> (fail loudly, never guess): a
+guard that cannot confirm its safe condition must not let flow pass, and a broken
+conservation assumption must never be degraded to a bubble that flows downstream. This
+strictness is the deliberate difference between <code>CONSERVE</code> (a safety
+assertion) and <code>EQ</code> (an observation that may return <code>unknown</code>).
+Over the admitted domain \(D\) (Section 4.2.7) sum-equality is exact and decidable, so
+for rational (money-scale) values <code>CONSERVE</code> either passes or fails
+loudly.</p>
+
+<p><strong>Table-invariant form (normative).</strong> A table may declare the invariant
+<code>CONSERVE(total-cell, parts-range)</code> as table metadata. The invariant is
+checked on every recalculation that dirties any participant. A violation marks the table
+with a machine-readable <strong>integrity failure</strong> — surfaced by the host as a
+loud, non-dismissable-by-formatting error state — while cell values remain whatever the
+formulas produced (the invariant observes; it does not rewrite values).</p>
+
+<p><strong>Relationship to <code>QUANTIZE</code>.</strong> <code>QUANTIZE</code>'s
+residual identity \(q + r = x\) (Section 7.13) is the <em>atomic</em> conservation
+guarantee for a single rounding; <code>CONSERVE</code> is the <em>aggregate</em> one over
+a whole range of parts. Together they let a document quantize an allocation to a currency
+grid and then prove that the quantization neither invented nor lost value.</p>
+
+<h3 id="103-expect-example-row-assertions">10.3 <code>EXPECT</code>: example-row assertions</h3>
+
+<p>A function table (Section 5.6) may designate one literal column as its
+<strong>EXPECT column</strong>. The designation declares a table invariant, checked under
+the same regime as <code>CONSERVE</code>'s invariant form (Section 10.2): on every
+recalculation that dirties a participant, and fail loudly.</p>
+
+<ul>
+<li><strong>Assertion.</strong> For every example row whose EXPECT cell is non-Empty, the row's output-column value (Section 5.6) must equal the EXPECT value. Equality is value identity (Section 4.2.4 for Scalars); an Empty EXPECT cell asserts nothing for its row.</li>
+<li><strong>Fail loudly, never guess.</strong> A mismatch, an output value of NIL or U where EXPECT is definite, or an equality that cannot be <em>proven</em> within the comparison budget marks the table with a machine-readable <strong>integrity failure</strong> — the same loud, non-dismissable-by-formatting state as a <code>CONSERVE</code> violation. Cell values remain whatever the formulas produced; the invariant observes, it does not rewrite.</li>
+<li><strong>Role.</strong> Example rows with EXPECT are the function's unit tests, co-located with its definition and re-run by recalculation itself. An edit that breaks the function is visible at the moment it is made.</li>
+</ul>
+
+<h2 id="11-error-model">11. Error Model</h2>
+
+<h3 id="111-user-level-error-categories">11.1 Error categories</h3>
+
+<div class="ref-table-wrap">
+<table class="ref-table">
+<thead><tr><th>Category</th><th>Cause</th><th>Outcome</th></tr></thead>
+<tbody>
+<tr><td><strong>Formula error</strong></td><td>Malformed use: parse failure, single-result violation (Section 6.2), wrong operand kind where the contract says malformed (e.g. <code>MOD</code> by zero, invalid <code>QUANTIZE</code> step), reference to a deleted target, <code>CONSERVE</code> failure</td><td>The cell enters the <em>error state</em>: it has no value; dependents referencing it receive NIL with <code>reason = upstreamError</code>. The error carries a <code>diagnosis</code> (<code>when</code>/<code>where</code>/<code>why</code>, Section 4.5.0)</td></tr>
+<tr><td><strong>Bubble (NIL)</strong></td><td>Well-formed domain miss: division by exact zero, negative <code>SQRT</code>, type mismatch, empty-cell arithmetic, parse-failure of <code>TO-NUMBER</code>, step-budget exhaustion</td><td>The cell's value is NIL with a reason (Section 4.5.0); it propagates by passthrough (Section 4.5.1) and is receivable by <code>VENT</code></td></tr>
+<tr><td><strong>Undecided (U)</strong></td><td>A comparison outside \(D\) that did not decide within budget (Section 7.4.1)</td><td>The cell's value is the truth value <code>unknown</code>, with <code>agreedPrefix</code> diagnostics</td></tr>
+<tr><td><strong>Reference cycle</strong></td><td>Dependency cycle (Section 9.4)</td><td>NIL with <code>reason = referenceCycle</code> on every cycle member</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3 id="112-bubble-rule">11.2 Bubble Rule</h3>
+
+<p>The boundary between the first two categories is the <strong>Bubble Rule</strong>:</p>
+
+<ul>
+<li><strong>Malformed use of a word is an error</strong> — the program itself is wrong, the cell has no value, and the fix is to the formula (<code>recoverability = fixProgram</code>).</li>
+<li><strong>A well-formed operation that misses its domain produces a Bubble</strong> — a NIL carrying the reason, flowing through NIL-passthrough words (Section 7.12) so that one <code>^</code> (<code>VENT</code>) at the pipeline's end can supply a fallback (<code>recoverability = recoverable</code>).</li>
+</ul>
+
+<p>Errors are never values: an error state never flows into arithmetic. Bubbles are
+always values: they never abort recalculation. The grid displays both distinctly, with
+diagnosis on demand, and the semantics-driven display always wins over user formatting
+(Section 13.2).</p>
+
+<h2 id="12-semantic-plane">12. Semantic Plane</h2>
+
+<h3 id="121-purpose">12.1 Purpose</h3>
+
+<p>Values carry machine-readable semantic metadata — interpretation roles and
+capabilities — so that observation surfaces (display, diagnostics, protocol export)
+render and route values without inspecting internal representations
+(Section 2.3).</p>
+
+<h3 id="122-interpretation-roles">12.2 Interpretation roles</h3>
+
+<div class="ref-table-wrap">
+<table class="ref-table">
+<thead><tr><th>Role</th><th>Applies to</th><th>Observation</th></tr></thead>
+<tbody>
+<tr><td><code>RawNumber</code></td><td>Scalar</td><td>Reduced <code>numerator/denominator</code> (rationals); primary display form</td></tr>
+<tr><td><code>ContinuedFraction</code></td><td>Scalar</td><td>The bracket serialization of Section 4.2.3; AI-targeted diagnostics</td></tr>
+<tr><td><code>TruthValue</code></td><td>Boolean, U</td><td><code>true</code> / <code>false</code> / <code>unknown</code> protocol strings</td></tr>
+<tr><td><code>Text</code></td><td>Text</td><td>The codepoint sequence itself</td></tr>
+<tr><td><code>Absence</code></td><td>NIL</td><td>The <code>absence</code> object of Section 4.5.0</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>Display strings under every role are non-canonical (Section 2.3); the role-tagged
+protocol values are the machine-readable surface.</p>
+
+<h2 id="13-host-boundary">13. Host Boundary and Presentation Layer</h2>
+
+<h3 id="131-effects-are-host-commands">13.1 Effects are host commands</h3>
+
+<p>All effects — editing cells, defining words (<code>DEF</code>/<code>DEL</code>),
+structural edits, persistence, import/export, printing — are <strong>host
+commands</strong> issued through the GUI or the machine protocol, never words invocable
+from a formula (Section 6.3). The <strong>Script surface</strong> is the host's
+word-editing environment; it is where <code>DEF</code> is written, and it may offer
+imperative conveniences, but those conveniences are host features, not formula
+semantics.</p>
+
+<h3 id="132-presentation-is-not-value">13.2 Presentation is not value</h3>
+
+<p>Column widths, styles, cell merges, sheet layout, and formats live in the
+presentation layer, stored with the document but outside the value model. Normative
+constraints on presentation:</p>
+
+<ul>
+<li><strong>Semantics-driven display wins.</strong> The NIL / U / error / cycle display states cannot be painted over by user formatting.</li>
+<li><strong>Merges are display spans.</strong> A merge names an anchor cell; covered addresses resolve to the anchor for reference purposes; values are owned by the anchor only. Export of the logical model ignores merges.</li>
+<li><strong>Formats are quantization</strong> (Section 10.1) and never alter the exact value.</li>
+<li><strong>Truncated numeric display is marked.</strong> When a display shortens an exact value (long rationals, lazy CFs), the host must make the truncation perceivable and must never re-parse displayed text as the value (Sections 3.4, 4.2.3).</li>
+</ul>
+
+<h3 id="133-persistence-and-interchange">13.3 Persistence and interchange</h3>
+
+<p>The machine-readable document format serializes tables (cell formulas in canonical
+form, literals as exact values), function-table metadata (parameter declarations, output
+designation, EXPECT designation — Sections 5.6, 10.3), the dictionary, presentation
+metadata, and invariants.
+Exact values travel in a protocol form that round-trips losslessly; display strings are
+never the interchange form. CSV export writes display values and is lossy by declaration;
+CSV import reads literals under Section 3.6's entry convention.</p>
+
+<h2 id="14-ai-first-implementation-rules">14. AI-first Implementation Rules</h2>
+
+<h3 id="141-mandatory">14.1 Mandatory</h3>
+
+<ul>
+<li>The dependency graph, cell diagnostics, formula bodies (canonical form), contract metadata, and invariant states are exposed machine-readably at every point where a human can see their rendered equivalents.</li>
+<li>Diagnostic protocol fields are lower camel case strings, stable across releases; human-readable summaries are non-canonical.</li>
+<li>Every normative behavior in this specification is traceable to tests (Section 16); implementation modules cite the section they implement.</li>
+<li>No implementation may branch on non-observable state (Section 2.3) to produce observable differences.</li>
+</ul>
+
+<h3 id="142-advisory">14.2 Advisory</h3>
+
+<ul>
+<li>Prefer structurally searchable implementation (one concept, one home) over clever fusion.</li>
+<li>Keep the canonical formula form the stored form; the infix surface is derived at the edge.</li>
+</ul>
+
+<h2 id="15-migration">15. Migration from the Vector-Oriented Canon</h2>
+
+<h3 id="151-removed">15.1 Removed from the language</h3>
+
+<div class="ref-table-wrap">
+<table class="ref-table">
+<thead><tr><th>Old canon feature</th><th>Disposition</th></tr></thead>
+<tbody>
+<tr><td>Vector / nested Vector values, Tensor representations (old §4.3, §7.1, §7.2)</td><td>Removed. Collections are grid structure (Section 5); nested data is separate tables with key references</td></tr>
+<tr><td>Record values (old §4.4)</td><td>Removed. A record is a table row with a header</td></tr>
+<tr><td><code>MAP</code> / <code>FILTER</code> / <code>FOLD</code>-over-vectors, <code>ZIP</code>, <code>SORT</code> (old §7.1, §7.7)</td><td><code>MAP</code> → column formulas (Section 5.5); <code>FILTER</code> → reserved view tables (Section 7.2) and <code>COUNT-IF</code>/<code>SUM-IF</code>; <code>FOLD</code> → range <code>FOLD</code> (Section 7.1); sorting → host/presentation operation</td></tr>
+<tr><td>User-visible stack, <code>STAK</code> mode, target/consumption modifiers (old §5, §6)</td><td>Removed as language surface. The operand stack survives as the formula-local evaluation mechanism (Section 6.1)</td></tr>
+<tr><td>CodeBlock as a storable value (old §4.6)</td><td>Demoted to formula-transient (Sections 4.1, 6.1)</td></tr>
+<tr><td>Module system, <code>IMPORT</code> (old §9)</td><td>Removed. The Coreword set is flat; <code>MATH@SQRT</code>/<code>MATH@POW</code> become <code>SQRT</code>/<code>POW</code></td></tr>
+<tr><td>Child runtimes, supervisors, <code>SPAWN</code>/<code>AWAIT</code> (old §10)</td><td>Out of scope for this draft; a future revision may reintroduce asynchrony as async cells</td></tr>
+<tr><td>IO / SERIAL / audio effect words (old §7.9, §9.4, §9.5)</td><td>Removed from the language; effects are host commands (Section 13.1)</td></tr>
+<tr><td>Flow-mass contracts (old §13.1–13.2)</td><td>Subsumed by per-word <code>mass</code> contract metadata (Section 7.14) validated at formula parse time</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3 id="152-preserved">15.2 Preserved</h3>
+
+<p>Carried over in substance, with section numbers kept aligned where possible: the
+exact-real continued-fraction scalar (§4.2), reason-carrying NIL (§4.5), K3 logic and the
+U truth value (§7.4, §7.5), <code>COMPARE-WITHIN</code> (§7.4.2), U-honesty (§7.4.3),
+<code>QUANTIZE</code> (§7.13), <code>CONSERVE</code> (§13.3 → §10.2), the Bubble Rule
+(§11.2), the semantic plane (§12), contract metadata (§7.14), user words and content
+addressing (§8), and the AI-first and test disciplines (§14–§16).</p>
+
+<h3 id="153-lineage">15.3 Lineage and spec-first rule</h3>
+
+<ol>
+<li>The vector-oriented predecessor lives in the Ajisai repository and remains the authority for that (separate) implementation; this specification is the authority for Viscaria.</li>
+<li>Implementation proceeds in phases against this specification; divergences discovered during implementation are resolved by amending this specification first (spec-first rule).</li>
+<li>Sections describing not-yet-implemented words or surfaces are normative for the target build (Section 2.6).</li>
+</ol>
+
+<h2 id="16-conformance-checklist">16. Conformance Checklist</h2>
+
+<p>A conforming implementation:</p>
+
+<ol>
+<li>Represents every numeric cell value as an exact real per Section 4.2, with no floating-point intermediates anywhere in evaluation.</li>
+<li>Enforces the Flat Cell principle: no composite cell results (Sections 4.1, 6.2).</li>
+<li>Implements the six relations total and exact over \(D\) (Section 7.4), NICF budget units (Section 7.4.1.1), and <code>COMPARE-WITHIN</code> (Section 7.4.2).</li>
+<li>Implements K3 logic with NIL priority (Sections 7.5, 4.5.2) and U-honesty in every comparison-dependent word (Section 7.4.3).</li>
+<li>Implements the Empty/NIL distinction and the aggregation absence rules of Sections 4.6 and 7.1, including the prohibition on blank-as-zero coercion.</li>
+<li>Produces order- and parallelism-independent recalculation results (Section 9.3), minimal dirty-set recalculation (Section 9.2), and exact cycle diagnosis (Section 9.4).</li>
+<li>Implements <code>QUANTIZE</code> with the residual identity and banker's rounding (Section 7.13), format-as-quantization (Section 10.1), and <code>CONSERVE</code> with fail-loud semantics in both word and invariant forms (Section 10.2).</li>
+<li>Keeps the Bubble Rule boundary of Section 11.2, with machine-readable diagnoses on every error, bubble, U, and cycle outcome.</li>
+<li>Round-trips the canonical ⇄ infix surface bijectively for the grammar of Section 3.6.</li>
+<li>Implements function tables per Sections 5.6 and 6.6: positional parameter binding, default and named output columns, on-demand sibling-column evaluation, the memo soundness condition (memoization only on exactly decided argument equality, never observable in values), <code>EXPECT</code> invariants with fail-loud semantics (Section 10.3), and the call-recursion/reference-cycle distinction of Section 9.6.</li>
+<li>Exposes the machine-readable surfaces of Section 14.1.</li>
+</ol>
+
+<h2 id="appendix-a-water">Appendix A. Water on the Grid (non-normative index)</h2>
+
+<p>This appendix is <strong>non-normative</strong>. It introduces no new rules, types,
+words, or protocol fields. It is a vocabulary index that maps the water metaphor of
+Ajisai's user-facing material onto the normative mechanisms defined above, continuing the
+role of the previous canon's "Gates and Water Levels" appendix. Where this appendix and
+any numbered section disagree, the numbered section governs.</p>
+
+<p>The metaphor carries over from the vector-oriented canon intact — and becomes more
+literal. A spreadsheet's own vocabulary already speaks of <em>upstream</em> and
+<em>downstream</em> cells: the dependency graph of Section 9.1 <strong>is</strong> a
+watershed, and recalculation is water finding its way downhill. The base image of the
+grid is the <strong>vessel</strong> (器): a cell is a vessel, and a vessel holds one
+water. Ajisai — the hydrangea — is the flower of the rainy season: many small vessels
+fed by one water system.</p>
+
+<div class="ref-table-wrap">
+<table class="ref-table">
+<thead><tr><th>Water vocabulary</th><th>Normative mechanism</th></tr></thead>
+<tbody>
+<tr><td><strong>Vessel</strong> (器) — one vessel, one water</td><td>The cell (Sections 4.1, 6.2). The Flat Cell principle in a single image: <em>a vessel holds water, never other vessels</em>. There are no nested values; structure is the arrangement of vessels on the grid (Section 5), and a formula fills exactly one vessel with exactly one water (Section 6.2).</td></tr>
+<tr><td><strong>Watershed</strong> (流域) — upstream and downstream</td><td>The dependency graph and its inverted index (Section 9.1). An edit is <em>rainfall</em> at a point; the dirty closure (Section 9.2) is exactly the watershed downstream of it, and topological recalculation (Section 9.3) is the water running downhill from vessel to vessel.</td></tr>
+<tr><td><strong>Confluence</strong> (合流) — parted streams rejoin as one</td><td>The order- and parallelism-independence of recalculation (Section 9.3). The functional-programming term for this property <em>is</em> the water word: evaluation orders may branch and rejoin, and the settled document is the same.</td></tr>
+<tr><td><strong>Bubble</strong> (泡) — failed water rising through the flow</td><td>Reason-carrying NIL and its passthrough (Sections 4.5, 7.12, 11.2), received at one visible point by <code>VENT</code> <code>^</code> (Section 7.7). On the grid a bubble is visible in the cell it reaches.</td></tr>
+<tr><td><strong>Stagnation</strong> (淀み) — flow that neither passes nor fails</td><td>The logical Unknown (U) of an undecided observation (Sections 4.3, 7.4.1). A stagnant cell is visible as such; K3 logic (Section 7.5) settles what definite flow can settle and carries the stagnation otherwise.</td></tr>
+<tr><td><strong>Awaiting rain</strong> (雨待ち) — an empty vessel the rain has not yet reached</td><td>Empty (Section 4.6). An edit is rainfall, and an untouched cell is an empty vessel: not failed water (a bubble carries its reason, Section 4.5), just none yet. Aggregation flows past empty vessels (Section 7.1), while treating an empty vessel as if it held water is refused (no blank-as-zero, Section 4.6).</td></tr>
+<tr><td><strong>Uphill channel</strong> (逆勾配の水路) — water does not run uphill</td><td>A reference cycle (Section 9.4). Recalculation is water running downhill (Section 9.3); a cycle is a channel that could fill only if water flowed uphill, so it is refused when the flow is planned — diagnosed exactly, every member marked, never spun. Function-table call recursion is not uphill: each application steps down onto a fresh terrace, a cascade bounded by the vessel's water level (Section 9.6).</td></tr>
+<tr><td><strong>Water levels</strong> (水位) — how much flow may run</td><td>Per-cell budgets (Sections 6.4, 9.5): each vessel has its own level, so one overflowing vessel never floods the document. Step-budget exhaustion is an operational outcome (NIL, <code>reason = stepBudgetExhausted</code>); an exhausted comparison budget is Stagnation (U, Section 7.4.1) — the previous canon's defining distinction between the two, preserved (Section 4.5.2).</td></tr>
+<tr><td><strong>Gates</strong> (水門) — where flow may cross a boundary</td><td>The host boundary (Section 13.1). Outward: effects leave the pure grid only as host commands. Inward: values enter only as literal entry and import at the host surface (Sections 3.6, 13.3). Inside the gates, the grid is a closed, conserved water system (Section 6.3).</td></tr>
+<tr><td><strong>Conservation</strong> (保存) — no water invented or lost</td><td><code>QUANTIZE</code>'s residual identity \(q + r = x\) captures the runoff of a single rounding instead of spilling it (Section 7.13); <code>CONSERVE</code> proves a whole allocation reconciles to its total (Section 10.2); <code>EXPECT</code> keeps a function table's example flows true (Section 10.3). All three fail loudly rather than let unproven flow pass.</td></tr>
+</tbody>
+</table>
+</div>
+
+</main>
+</body>
+</html>

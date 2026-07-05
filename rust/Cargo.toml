@@ -1,0 +1,16 @@
+[package]
+name = "viscaria-core"
+version = "0.1.0"
+edition = "2021"
+description = "Exact-real, table-oriented spreadsheet language core (Viscaria)."
+license = "MIT OR Apache-2.0"
+
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]
+# The exact-real kernel needs arbitrary-precision integers and integer helpers
+# only; it holds no floating point and no serialization in the core value path.
+num-bigint = "0.4"
+num-integer = "0.1"
+num-traits = "0.2"

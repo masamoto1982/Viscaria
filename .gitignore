@@ -1,0 +1,7 @@
+# Rust
+/rust/target/
+**/*.rs.bk
+
+# OS / editor
+.DS_Store
+*.swp
