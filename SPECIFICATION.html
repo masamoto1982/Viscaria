@@ -183,9 +183,9 @@ evaluated left to right (Section 6). Token types:</p>
 <tbody>
 <tr><td>Numeric literal</td><td><code>42</code>, <code>3/4</code>, <code>1.25</code>, <code>-7</code></td><td>An exact Scalar (Section 3.2)</td></tr>
 <tr><td>Text literal</td><td><code>'hello'</code></td><td>A Text value (Section 3.3)</td></tr>
-<tr><td>Cell reference</td><td><code>A1</code>, <code>TABLE2@B3</code></td><td>The value of another cell (Section 3.5)</td></tr>
+<tr><td>Cell reference</td><td><code>B3</code>, <code>TABLE2.B3</code></td><td>The value of another cell (Section 3.5)</td></tr>
 <tr><td>Column reference</td><td><code>[@PRICE]</code></td><td>Same-row value of a named column (Section 5.5)</td></tr>
-<tr><td>Range reference</td><td><code>A1:A10</code>, <code>[PRICE]</code>, <code>TABLE2@A1:B5</code></td><td>A rectangular region, usable only where a Range is expected (Section 3.5)</td></tr>
+<tr><td>Range reference</td><td><code>A1:A10</code>, <code>SALES.PRICE</code>, <code>TABLE2.A1:B5</code></td><td>A rectangular region or a whole column, usable only where a Range is expected (Section 3.5)</td></tr>
 <tr><td>Word</td><td><code>ADD</code>, <code>SUM</code>, <code>TAX-RATE</code></td><td>Built-in or user word invocation</td></tr>
 <tr><td>Code block</td><td><code>{ 2 MUL }</code></td><td>A formula-local executable block (Section 6.1); never a cell result</td></tr>
 <tr><td>Definition / deletion</td><td><code>DEF</code>, <code>DEL</code></td><td>User word management (Section 8); valid only in the Script surface, not inside cells</td></tr>
@@ -221,18 +221,23 @@ in formulas, and must not be parsed back as values.</p>
 
 <h3 id="35-cell-and-range-references">3.5 Cell and range references</h3>
 
+<p>References name what they point at. Two sigils are orthogonal: <code>.</code> is the
+<strong>namespace path</strong> separator (document → table → member), and the bracketed
+<code>[@…]</code> marks a <strong>row-context</strong> reference ("this row's"). A cell's auto-name is its
+A1 coordinate, which is a position <em>surface</em> bound to the cell's stable identity
+(Section 5.3), so pointing at a cell the familiar A1 way requires no naming while the
+reference itself survives structural edits and merges.</p>
+
 <ul>
-<li><strong>Local cell:</strong> <code>A1</code> — column letter(s) then row number, within the formula's own table.</li>
-<li><strong>Qualified cell:</strong> <code>TABLE2@B3</code> — the qualified-name form <code>TABLE@ADDRESS</code> reaches any table in the document (Section 5.3).</li>
-<li><strong>Column (same row):</strong> <code>[@NAME]</code> — the value in column <code>NAME</code> of the current row; valid only in a column formula (Section 5.5).</li>
-<li><strong>Range:</strong> <code>A1:A10</code> (rectangular by two corner addresses), <code>[NAME]</code> (a whole named column body), and their <code>TABLE@</code>-qualified forms. A Range is a <em>reference</em>, not a value (Section 4.1): it may appear only as the operand of a range-consuming word (Section 7.1) and can never be a cell's result.</li>
-<li><strong>Function-table application:</strong> <code>TABLE@NAME</code>, where <code>NAME</code> is a bare (unbracketed) column name of a function table, applies that function table to the preceding operands and yields the named column's value (Sections 5.6, 6.6). A bare function-table name alone applies it with its default output column. The three <code>@</code>-qualified forms are disjoint by shape: an address (<code>TABLE@B3</code>) is a cell reference, a bracketed name (<code>TABLE@[NAME]</code>) is a range, a bare name (<code>TABLE@NAME</code>) is an application.</li>
+<li><strong>Local cell:</strong> <code>B3</code> — column letter(s) then row number, within the formula's own table; resolves to that cell's identity (Section 5.3).</li>
+<li><strong>Qualified cell:</strong> <code>TABLE2.B3</code> — the namespace path <code>TABLE.ADDRESS</code> reaches any table in the document (Section 5.3).</li>
+<li><strong>Named cell (landmark):</strong> a cell given an explicit name (Section 5.3), referenced by that name — <code>Total</code>, or <code>INVOICE.Total</code> when table-qualified.</li>
+<li><strong>Column (same row):</strong> <code>[@NAME]</code> — the value in column <code>NAME</code> of the current row (the bracketed <code>@</code> is the row-context marker); valid only in a column formula (Section 5.5).</li>
+<li><strong>Column / range:</strong> <code>TABLE.NAME</code> — a whole named column body, and <code>B2:C5</code> / <code>TABLE.B2:C5</code> — a rectangular region by two corner addresses. A Range is a <em>reference</em>, not a value (Section 4.1): it may appear only as the operand of a range-consuming word (Section 7.1) and can never be a cell's result.</li>
+<li><strong>Function-table application:</strong> <code>TABLE.NAME</code>, where <code>NAME</code> is a bare (unbracketed) output-column name of a function table, applies it to the preceding operands and yields that column's value (Sections 5.6, 6.6). A bare function-table name alone applies its default output column.</li>
 </ul>
 
-<p><strong>Reference vocabulary is closed (normative).</strong> A bare token matching the
-cell-address grammar (letters then digits) inside a formula is a cell reference, never a
-word name. User words whose normalized name matches the address grammar cannot be defined
-(Section 8.2).</p>
+<p><strong>Disjoint by shape (normative).</strong> After a namespace path <code>TABLE.MEMBER</code>, the member is resolved by shape: a token matching the cell-address grammar (letters then digits, optionally a <code>:</code> range) is a cell or range; a bare name that is a data column is that column (a range); a bare name that is a function table's output column is an application when operands are present. A bare token matching the cell-address grammar inside a formula is a cell reference, never a word name; user words whose normalized name matches the address grammar cannot be defined (Section 8.2).</p>
 
 <h3 id="36-infix-surface-form">3.6 Infix surface form</h3>
 
@@ -249,7 +254,7 @@ form</strong>, a projection aimed at spreadsheet users:</p>
 <tr><td><code>=[@PRICE]*[@QTY]</code></td><td><code>[@PRICE] [@QTY] MUL</code></td></tr>
 <tr><td><code>=IF(A1&gt;0, 'yes', 'no')</code></td><td><code>A1 0 GT 'yes' 'no' IF</code></td></tr>
 <tr><td><code>=TAX(B2)</code></td><td><code>B2 TAX</code></td></tr>
-<tr><td><code>=TRIANGLE.AREA(3, 4)</code></td><td><code>3 4 TRIANGLE@AREA</code></td></tr>
+<tr><td><code>=TRIANGLE.AREA(3, 4)</code></td><td><code>3 4 TRIANGLE.AREA</code></td></tr>
 </tbody>
 </table>
 </div>
@@ -259,7 +264,7 @@ form</strong>, a projection aimed at spreadsheet users:</p>
 <ul>
 <li>The infix surface is a <strong>bijective projection</strong>: every infix formula maps to exactly one canonical token sequence, and every canonical sequence expressible in the infix grammar maps back to a unique normal-form infix rendering. Semantics are defined on the canonical form only.</li>
 <li>Operator spellings map to Corewords: <code>+ - * /</code> → <code>ADD SUB MUL DIV</code>; <code>&lt; &lt;= &gt; &gt;= = &lt;&gt;</code> → <code>LT LTE GT GTE EQ NEQ</code>; <code>&amp;</code> (text) → <code>CONCAT</code>. Precedence is the conventional arithmetic precedence; parentheses group.</li>
-<li>Function-call syntax <code>NAME(arg1, arg2, …)</code> maps to <code>arg1 arg2 … NAME</code> for any built-in word, user word, or function table (default output column), so all of them are callable from the infix surface without declaration. The dot form <code>TABLE.COL(args…)</code> selects a specific output column and maps to <code>args… TABLE@COL</code> (Section 3.5).</li>
+<li>Function-call syntax <code>NAME(arg1, arg2, …)</code> maps to <code>arg1 arg2 … NAME</code> for any built-in word, user word, or function table (default output column), so all of them are callable from the infix surface without declaration. The dot form <code>TABLE.COL(args…)</code> selects a specific output column and maps to <code>args… TABLE.COL</code> (Section 3.5).</li>
 <li>In the host grid, a cell text beginning with <code>=</code> is an infix formula; a cell text that parses as a numeric literal is a Scalar literal; any other text is a Text literal. This entry convention is a host rule (Section 13), not part of formula syntax.</li>
 <li>A canonical sequence that has no infix rendering (e.g. one using code blocks) is displayed in canonical form; the surface layer must not invent lossy renderings.</li>
 </ul>
@@ -585,19 +590,33 @@ changes no reference and no value. The language core observes the document as
 <h3 id="52-tables">5.2 Tables</h3>
 
 <ul>
-<li>A table is a named finite grid of cells with a fixed current size (rows × columns), growable by explicit host action. The default table of a new document is <code>TABLE1</code>.</li>
-<li><strong>Table names are unique within the document</strong> (normative), normalized like word names (Section 8.2). Renaming a table rewrites all references to it atomically (host-mediated, Section 13).</li>
-<li>A table may declare a <strong>header row</strong> whose Text cells name the columns. Column names are unique within their table and enable the <code>[@NAME]</code> / <code>[NAME]</code> reference forms (Section 3.5).</li>
+<li>A table is a finite grid of cells with a fixed current size (rows × columns), growable by explicit host action.</li>
+<li><strong>Auto-named, explicitly renamable.</strong> Every table is auto-named on creation (<code>Table1</code>, <code>Table2</code>, …) and may be given an explicit name; either way the name is unique within the document and normalized like word names (Section 8.2). A table name is a <strong>namespace</strong> (Section 3.5). A rename changes the name attached to the table's identity; references bind to identity (Section 5.3), so no formula text is rewritten.</li>
+<li>Columns are likewise auto-named (from the <strong>header row</strong>'s Text cells when present, otherwise <code>ColA</code>, <code>ColB</code>, …) and explicitly renamable; column names are unique within their table and enable the <code>@NAME</code> / <code>TABLE.NAME</code> reference forms (Section 3.5).</li>
 <li>Each column may carry a <strong>column formula</strong> (Section 5.5) and a <strong>format</strong> (Section 10.1); each table may carry <strong>invariants</strong> (Section 10.2).</li>
 </ul>
 
-<h3 id="53-addresses-and-references">5.3 Addresses and references</h3>
+<h3 id="53-addresses-and-references">5.3 Identity, auto-names, and references</h3>
+
+<p><strong>Universal auto-naming with explicit override.</strong> Every entity — document,
+sheet, table, column, and cell — is auto-named on creation and may be given an explicit
+name. Each also has a <strong>stable identity</strong> assigned at creation and never
+reassigned by insertion, deletion, merge, or move. The identity is the canonical referent;
+the name is how a formula spells it. This keeps the A1 convention's chief benefit — you
+never have to invent a name to point at a value — while removing its fragility.</p>
 
 <ul>
-<li>Cell addresses use the A1 convention: column letters (<code>A</code>–<code>Z</code>, <code>AA</code>–…) then 1-based row number. Addresses are positional and refer to the grid slot, not to a value identity.</li>
-<li>The qualified form <code>TABLE@A1</code> (and <code>TABLE@[NAME]</code>, <code>TABLE@A1:B5</code>) reaches any table in the document. Within a table's own formulas the qualifier is optional.</li>
-<li>Structural edits (row/column insertion and deletion) rewrite affected references in formulas, following spreadsheet convention; a reference whose target is deleted becomes a formula error (Section 11.1), not a silently shifted reference.</li>
+<li><strong>Cell auto-name = A1 coordinate, bound to identity.</strong> A cell's auto-name is its A1 coordinate (column letters <code>A</code>–<code>Z</code>, <code>AA</code>–…, then 1-based row). But a reference written as a coordinate <strong>binds to the cell's identity</strong>, not to the grid slot, and is <em>rendered</em> at the cell's current coordinate. So inserting or deleting rows/columns re-renders existing references at their new coordinates without rewriting them, and a reference never silently shifts to a different value.</li>
+<li><strong>Deletion.</strong> A reference to a cell that is actually deleted becomes a formula error (Section 11.1) — it does not resolve to whatever later occupies the slot.</li>
+<li><strong>Merges.</strong> A merged region is one cell — one identity — occupying a rectangle (presentation span, Section 13.2). Covered coordinates have no identity of their own; a coordinate inside a merge resolves to the merged cell. There is no "hole" to patch.</li>
+<li><strong>Explicit names.</strong> An explicit name overrides the auto-name as the preferred spelling and, for a cell, makes it a landmark referable as <code>Total</code> (or <code>TABLE.Total</code>); for a table or sheet, it is the namespace label.</li>
+<li><strong>Qualification.</strong> The namespace path <code>TABLE.ADDRESS</code> (and <code>TABLE.NAME</code>, <code>TABLE.B2:C5</code>) reaches any table in the document; within a table's own formulas the qualifier is optional (Section 3.5).</li>
 </ul>
+
+<p>The A1 coordinate is thus a presentation surface over a stable identity, exactly as
+the infix form is a surface over the canonical formula (Section 3.6) and display rounding
+is a surface over the exact value (Section 10.1). The identity, not the coordinate, is
+what persists and what the machine-readable document format records (Section 13.3).</p>
 
 <h3 id="54-ranges-are-references">5.4 Ranges are references, not values</h3>
 
@@ -689,7 +708,7 @@ observable randomness, wall-clock, or evaluation-order dependence.</p>
 <p>Naming a function table applies it, exactly as naming a word invokes it (concatenative
 rule: naming is execution; deferral is quotation). For a function table <code>F</code>
 with parameter columns \(p_1, \dots, p_n\) (left-to-right) and a formula column
-<code>COL</code>, the application <code>a1 … an F@COL</code>:</p>
+<code>COL</code>, the application <code>a1 … an F.COL</code>:</p>
 
 <ol>
 <li><strong>consumes</strong> the top n operands, binding them positionally to \(p_1, \dots, p_n\); fewer than n available operands is malformed use → formula error;</li>
@@ -705,7 +724,7 @@ with parameter columns \(p_1, \dots, p_n\) (left-to-right) and a formula column
 <li><strong>Arguments are values.</strong> Arguments may be any atomic value, including NIL and U; no implicit passthrough applies at the call boundary — the body's words handle absence per their own contracts. Transient kinds (Range, CodeBlock) are not passable arguments; supplying one is malformed use → formula error.</li>
 <li><strong>Dependencies.</strong> The calling formula depends on the function table's definition (its column formulas, parameter declarations, and output designation) and, transitively, on every cell, range, and word the evaluated body references (Section 9.1). Example-row <em>values</em> are not dependencies of a call, except through the memo rule below.</li>
 <li><strong>Memoization by example rows (normative soundness condition).</strong> An implementation may answer an application from an example row whose parameter values equal the arguments, provided the equality of every argument with the row's parameter value is <em>decided exactly</em> (definite per Section 7.4 — always the case within the admitted domain \(D\), Section 4.2.7). If any such equality would be undecidable, the memo must not be used and the body is evaluated. By purity, the memoized answer and the evaluated answer are the same value; memoization is never observable except through resource use.</li>
-<li><strong>Higher-order use.</strong> To pass a function rather than apply it, wrap the application in a quotation: <code>[SALES] 0 { TAX ADD } FOLD</code>. There is no function-reference value kind.</li>
+<li><strong>Higher-order use.</strong> To pass a function rather than apply it, wrap the application in a quotation: <code>SALES.AMOUNT 0 { TAX ADD } FOLD</code>. There is no function-reference value kind.</li>
 <li><strong>Recursion.</strong> A body may apply its own table or tables that apply it back. Call recursion is dynamic and bounded by the step budget; it is not a reference cycle (Section 9.6).</li>
 </ul>
 
