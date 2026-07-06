@@ -6,14 +6,26 @@
 // table's name is its namespace (design note docs/dev/ajisai-cell-addressing.md
 // §3, §7): tables are auto-named (`Table1`, `Table2`, …), document-unique, and
 // renamable, and a cell is addressed `Table.A1`. The name box resolves that
-// namespaced form to jump across tables (and sheets). Cells hold literal values
-// (numbers / text); numbers right-align. Formula evaluation (`=Table.A1+B1`)
-// with EXACT continued-fraction arithmetic is the next slice, wired through the
-// Rust core compiled to WASM — deliberately not faked in JS floats here, because
-// exactness is the whole point.
+// namespaced form to jump across tables (and sheets).
+//
+// Tables float freely on the sheet: right-click the sheet to open a menu that
+// asks for the column and row counts and drops a new table where you clicked,
+// and drag a table by its name header to reposition it anywhere. Cells hold
+// literal values (numbers / text); numbers right-align. Formula evaluation
+// (`=Table.A1+B1`) with EXACT continued-fraction arithmetic is the next slice,
+// wired through the Rust core compiled to WASM — deliberately not faked in JS
+// floats here, because exactness is the whole point.
 
 const DEFAULT_COLS = 5;
 const DEFAULT_ROWS = 8;
+const MAX_COLS = 50;
+const MAX_ROWS = 200;
+
+/** Clamp a menu input to an integer in [lo, hi], falling back to `dflt`. */
+function clampInt(v, lo, hi, dflt) {
+  const n = Math.floor(Number(v));
+  return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : dflt;
+}
 
 // ---- address helpers --------------------------------------------------------
 
@@ -44,17 +56,22 @@ const kindOf = (raw) => (raw !== "" && numberRe.test(raw.trim()) ? "number" : "t
 
 // ---- model ------------------------------------------------------------------
 //
-// doc → sheets → tables → cells. A table owns its own grid dimensions and a
+// doc → sheets → tables → cells. A table owns its own grid dimensions, its
+// free-floating position (x, y) on the sheet, a stacking order (z), and a
 // sparse map of address → raw text. Table names are document-unique namespaces;
 // `cellEls` is transient render state (rebuilt each render), not part of the
 // document.
 
 let idSeq = 0;
-const makeTable = (name) => ({
+let zTop = 0; // most-recently-touched table floats above the rest
+const makeTable = (name, cols = DEFAULT_COLS, rows = DEFAULT_ROWS, x = 24, y = 24) => ({
   id: `t${++idSeq}`,
   name,
-  cols: DEFAULT_COLS,
-  rows: DEFAULT_ROWS,
+  cols,
+  rows,
+  x,
+  y,
+  z: ++zTop,
   cells: new Map(),
   cellEls: new Map(),
 });
@@ -135,19 +152,31 @@ const focusSheet = () => sheetEl.focus();
 function renderSheet() {
   sheetEl.replaceChildren();
   for (const t of activeSheet().tables) sheetEl.append(buildTableCard(t));
-  const add = el("button", "add-table", "+ Table");
-  add.setAttribute("aria-label", "Add table");
-  add.addEventListener("click", addTable);
-  sheetEl.append(add);
+  fitCanvas();
+}
+
+/** Grow the sheet so every floating table (and some slack) stays scrollable. */
+function fitCanvas() {
+  let w = 0, h = 0;
+  for (const card of sheetEl.querySelectorAll(".table-card")) {
+    w = Math.max(w, card.offsetLeft + card.offsetWidth);
+    h = Math.max(h, card.offsetTop + card.offsetHeight);
+  }
+  sheetEl.style.minWidth = `${w + 40}px`;
+  sheetEl.style.minHeight = `${h + 40}px`;
 }
 
 function buildTableCard(t) {
   const card = el("div", "table-card");
   card.dataset.tableId = t.id;
+  card.style.left = `${t.x}px`;
+  card.style.top = `${t.y}px`;
+  card.style.zIndex = String(t.z);
 
   const name = el("div", "table-name", t.name);
-  name.title = "Double-click to rename (table name is its namespace)";
+  name.title = "Drag to move · double-click to rename (name is its namespace)";
   name.addEventListener("dblclick", () => beginRename(t, name));
+  name.addEventListener("pointerdown", (e) => startDrag(t, card, e));
   card.append(name);
 
   const grid = el("section", "grid");
@@ -333,6 +362,19 @@ sheetEl.addEventListener("dblclick", (e) => {
   if (e.target.closest(".cell")) beginEdit();
 });
 
+// Right-click the empty sheet to add a table (with a chosen size) there.
+// Right-clicking on an existing table is left alone.
+sheetEl.addEventListener("contextmenu", (e) => {
+  if (e.target.closest(".table-card")) return;
+  e.preventDefault();
+  openTableMenu(e.clientX, e.clientY);
+});
+
+// Dismiss the menu on any pointer-down outside it.
+document.addEventListener("pointerdown", (e) => {
+  if (ctxMenu && !ctxMenu.contains(e.target)) closeTableMenu();
+});
+
 sheetEl.addEventListener("keydown", (e) => {
   if (editing) {
     if (e.key === "Enter") { e.preventDefault(); commitEdit({ dc: 0, dr: 1 }); }
@@ -391,13 +433,114 @@ formulaInput.addEventListener("keydown", (e) => {
 
 // ---- tables & sheet tabs ----------------------------------------------------
 
-function addTable() {
+/** Create a table of the given size at sheet-content coordinates (x, y). */
+function addTableAt(cols, rows, x, y) {
   if (editing) commitEdit();
-  const t = makeTable(autoTableName());
+  const t = makeTable(autoTableName(), cols, rows, Math.max(0, Math.round(x)), Math.max(0, Math.round(y)));
   activeSheet().tables.push(t);
   renderSheet();
   select(0, 0, t.id);
   focusSheet();
+}
+
+// ---- drag to reposition -----------------------------------------------------
+
+function startDrag(t, card, e) {
+  if (e.button !== 0) return; // left button only; right-click is the add menu
+
+  const startX = e.clientX, startY = e.clientY;
+  const origX = t.x, origY = t.y;
+  let dragging = false; // only after the pointer moves past a small threshold,
+                        // so a plain double-click still reaches beginRename.
+
+  const onMove = (ev) => {
+    if (!dragging) {
+      if (Math.abs(ev.clientX - startX) + Math.abs(ev.clientY - startY) < 4) return;
+      dragging = true;
+      if (editing) commitEdit();
+      closeTableMenu();
+      t.z = ++zTop;
+      card.style.zIndex = String(t.z);
+      card.classList.add("dragging");
+      card.setPointerCapture(e.pointerId);
+    }
+    t.x = Math.max(0, origX + (ev.clientX - startX));
+    t.y = Math.max(0, origY + (ev.clientY - startY));
+    card.style.left = `${t.x}px`;
+    card.style.top = `${t.y}px`;
+  };
+  const onUp = () => {
+    if (dragging) {
+      card.releasePointerCapture(e.pointerId);
+      card.classList.remove("dragging");
+      fitCanvas();
+    }
+    card.removeEventListener("pointermove", onMove);
+    card.removeEventListener("pointerup", onUp);
+  };
+  card.addEventListener("pointermove", onMove);
+  card.addEventListener("pointerup", onUp);
+}
+
+// ---- right-click "new table" menu -------------------------------------------
+
+let ctxMenu = null;
+
+function openTableMenu(clientX, clientY) {
+  closeTableMenu();
+  // Where the table lands, in sheet-content coordinates (not viewport).
+  const rect = sheetEl.getBoundingClientRect();
+  const dropX = clientX - rect.left;
+  const dropY = clientY - rect.top;
+
+  const menu = el("div", "ctx-menu");
+  menu.append(el("div", "ctx-title", "New table"));
+
+  const field = (labelText, value, max) => {
+    const label = el("label", "ctx-field");
+    label.append(el("span", null, labelText));
+    const input = el("input");
+    input.type = "number";
+    input.min = "1";
+    input.max = String(max);
+    input.value = String(value);
+    label.append(input);
+    menu.append(label);
+    return input;
+  };
+  const colIn = field("Columns", DEFAULT_COLS, MAX_COLS);
+  const rowIn = field("Rows", DEFAULT_ROWS, MAX_ROWS);
+
+  const create = el("button", "ctx-create", "Create");
+  const submit = () => {
+    addTableAt(
+      clampInt(colIn.value, 1, MAX_COLS, DEFAULT_COLS),
+      clampInt(rowIn.value, 1, MAX_ROWS, DEFAULT_ROWS),
+      dropX, dropY,
+    );
+    closeTableMenu();
+  };
+  create.addEventListener("click", submit);
+  menu.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); submit(); }
+    else if (e.key === "Escape") { e.preventDefault(); closeTableMenu(); focusSheet(); }
+  });
+  menu.append(create);
+
+  document.body.append(menu);
+  ctxMenu = menu;
+  // Keep the menu inside the viewport.
+  const lx = Math.max(8, Math.min(clientX, innerWidth - menu.offsetWidth - 8));
+  const ly = Math.max(8, Math.min(clientY, innerHeight - menu.offsetHeight - 8));
+  menu.style.left = `${lx}px`;
+  menu.style.top = `${ly}px`;
+  colIn.focus();
+  colIn.select();
+}
+
+function closeTableMenu() {
+  ctxMenu?.remove();
+  ctxMenu = null;
 }
 
 function renderTabs() {
