@@ -65,6 +65,19 @@
 
     & .brand { font-size: 1.05rem; font-weight: 650; letter-spacing: 0.01em; }
     & .tagline { font-size: 0.75rem; color: var(--muted); }
+
+    /* Math view toggle (Ajisai's Stack-area checkbox, moved to the app bar):
+       checked = KaTeX rendering, unchecked = canonical fraction strings. */
+    & .latex-toggle {
+      margin-inline-start: auto;
+      display: flex;
+      align-items: center;
+      gap: 0.3rem;
+      font-size: 0.78rem;
+      color: var(--muted);
+      cursor: pointer;
+      user-select: none;
+    }
   }
 
   .formula-bar {
@@ -159,11 +172,14 @@
      and can't be dragged; every deeper cell (.positioned) is absolute within
      its parent's front face and drags with grid snap. Every cell has a corner
      resize handle — a cell's size is the room for the cells inside it. */
+  /* Square corners throughout the cells: Viscaria is heading toward a
+     "drawing software with formulas", and flush edge-to-edge contact between
+     cells must read as one table — a rounded corner would leave a notch at
+     every joint. */
   .cell-box {
     position: relative;
     background: var(--surface);
     border: 1px solid var(--line-strong);
-    border-radius: 8px;
     font-variant-numeric: tabular-nums;
 
     /* Progressive tint by depth (親 lightest → 玄孫 most tinted). */
@@ -189,7 +205,6 @@
   .card {
     position: absolute;
     inset: 0;
-    border-radius: 7px; /* box radius minus border */
     overflow: hidden;
   }
 
@@ -204,7 +219,9 @@
   .cell-box.flipped .face.front { display: none; }
   .cell-box.flipped .face.back { display: flex; }
 
-  /* Leaf front: the whole face IS the value (double-click to edit). */
+  /* Leaf front: the whole face IS the value (double-click to edit). The
+     value is centered both ways by default; per-cell top/bottom/left/right
+     alignment is a planned option on top of this baseline. */
   .face.front {
     align-items: center;
 
@@ -213,18 +230,20 @@
       max-block-size: 100%;
       padding: 0.25rem 0.5rem;
       font-size: 0.9rem;
+      text-align: center;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
       cursor: text;
 
-      &[data-kind="number"] { text-align: end; font-family: var(--mono); }
-      &[data-kind="text"] { text-align: start; }
+      &[data-kind="number"] { font-family: var(--mono); }
+
+      /* KaTeX math view of a numeric value (canonical strings when off). */
+      &.math { font-family: var(--font); overflow: visible; }
 
       &.editing {
         outline: 2px solid var(--accent);
         outline-offset: -2px;
-        border-radius: 5px;
         background: var(--surface);
         white-space: pre;
         text-align: start;
@@ -314,7 +333,6 @@
     cursor: nwse-resize;
     touch-action: none;
     background: linear-gradient(135deg, transparent 55%, var(--line-strong) 55%);
-    border-end-end-radius: 7px;
 
     &:hover { background: linear-gradient(135deg, transparent 55%, var(--accent) 55%); }
   }
