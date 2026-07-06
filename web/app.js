@@ -243,24 +243,12 @@ function buildTableCard(t) {
   grid.style.setProperty("--cols", t.cols);
   grid.style.setProperty("--rows", t.rows);
 
-  // Everything is placed on explicit grid lines (column 1 / row 1 are the
-  // header bands), so skipping a merge's covered cells never shifts the layout.
-  const corner = el("div", "corner");
-  corner.style.gridArea = "1 / 1";
-  grid.append(corner);
-  for (let c = 0; c < t.cols; c++) {
-    const h = el("div", "colhead", colLabel(c));
-    h.style.gridColumn = String(c + 2);
-    h.style.gridRow = "1";
-    grid.append(h);
-  }
-
+  // No row/column header bands: the table name is the namespace and every cell
+  // still has an address (A1, B3, …) shown in the name box, so cells stay
+  // specifiable without visible labels. Cells sit on explicit grid lines so
+  // skipping a merge's covered cells never shifts the layout.
   t.cellEls.clear();
   for (let r = 0; r < t.rows; r++) {
-    const rh = el("div", "rowhead", String(r + 1));
-    rh.style.gridColumn = "1";
-    rh.style.gridRow = String(r + 2);
-    grid.append(rh);
     for (let c = 0; c < t.cols; c++) {
       if (isCovered(t, c, r)) continue; // hidden under a merge's anchor
       const a = addr(c, r);
@@ -269,8 +257,8 @@ function buildTableCard(t) {
       cell.dataset.tableId = t.id;
       cell.setAttribute("role", "gridcell");
       const m = mergeAt(t, c, r); // here m, if present, is anchored at (c, r)
-      cell.style.gridColumn = `${c + 2}${m ? ` / span ${m.cw}` : ""}`;
-      cell.style.gridRow = `${r + 2}${m ? ` / span ${m.rh}` : ""}`;
+      cell.style.gridColumn = `${c + 1}${m ? ` / span ${m.cw}` : ""}`;
+      cell.style.gridRow = `${r + 1}${m ? ` / span ${m.rh}` : ""}`;
       if (m) cell.classList.add("merged");
       t.cellEls.set(a, cell);
       grid.append(cell);

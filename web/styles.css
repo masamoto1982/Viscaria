@@ -13,8 +13,7 @@
 @layer tokens {
   :root {
     --cell: 2.4rem;              /* square cell edge */
-    --head: 1.6rem;              /* header band thickness */
-    --radius: 10px;
+    --radius: 10px;              /* context-menu corners */
 
     color-scheme: light dark;
     --bg: oklch(98.5% 0.004 260);
@@ -83,7 +82,10 @@
     }
 
     & .name-box {
-      inline-size: 7ch;
+      /* Wide enough to show a namespaced address like `Table1.B2` in full —
+         it's the primary way to read/enter a cell now that there are no
+         row/column labels. */
+      inline-size: 13ch;
       text-align: center;
       font-weight: 550;
       border-inline-end: 1px solid var(--line);
@@ -149,7 +151,6 @@
     color: var(--ink);
     background: var(--head-bg);
     border: 1px solid var(--line);
-    border-radius: 6px;
     cursor: grab;
     user-select: none;
     outline: none;
@@ -250,29 +251,24 @@
 }
 
 @layer grid {
-  /* The table card floats on the canvas — the only rounded element. */
+  /* The table card floats on the canvas: square (no rounded corners), just a
+     grid of square cells. There are no row/column header bands — the table name
+     is the namespace and each cell keeps its address (A1, B3, …). */
   .grid {
     display: grid;
     inline-size: max-content;
     background: var(--surface);
     border: 1px solid var(--line-strong);
-    border-radius: var(--radius);
     overflow: clip;
     outline: none;
     font-variant-numeric: tabular-nums;
-    /* columns/rows are set inline by app.js from --cols / --rows. The first row
-       is the thin column-header band (--head); data rows are square (--cell).
-       Without the explicit template row, grid-auto-rows would make the header
-       row --cell tall too, leaving dead space under the A/B/C… labels. */
-    grid-template-columns: var(--head) repeat(var(--cols), var(--cell));
-    grid-template-rows: var(--head);
+    /* columns/rows are set inline by app.js from --cols / --rows; every cell is
+       a square --cell × --cell. */
+    grid-template-columns: repeat(var(--cols), var(--cell));
     grid-auto-rows: var(--cell);
   }
 
-  .cell,
-  .rowhead,
-  .colhead,
-  .corner {
+  .cell {
     display: grid;
     place-items: center;
     border-inline-end: 1px solid var(--line);
@@ -280,24 +276,6 @@
     font-size: 0.82rem;
     min-inline-size: 0;
     overflow: hidden;
-  }
-
-  .corner,
-  .colhead,
-  .rowhead {
-    background: var(--head-bg);
-    color: var(--muted);
-    font-size: 0.72rem;
-    font-weight: 550;
-    user-select: none;
-    position: sticky;
-  }
-
-  .colhead { block-size: var(--head); inset-block-start: 0; z-index: 1; }
-  .rowhead { inset-inline-start: 0; z-index: 1; }
-  .corner  { inset: 0 auto auto 0; z-index: 2; position: sticky; }
-
-  .cell {
     background: var(--surface);
     padding-inline: 0.3rem;
     cursor: cell;
@@ -333,9 +311,6 @@
       padding-inline: 0.3rem;
     }
   }
-
-  /* Selection tints the corresponding headers via :has() — no JS bookkeeping. */
-  .grid:has(.cell.selected) { --sel: var(--accent-soft); }
 
   /* Clickable rows in the cell context menu (Merge / Unmerge). */
   .ctx-menu .ctx-item {
