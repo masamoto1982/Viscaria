@@ -19,7 +19,10 @@
 // with children needs room to lay them out, so its size is the thing that
 // makes "build cells inside cells" practical.
 //
-// Double-click a cell to rewrite its value.
+// A cell is a card with a front and a back (see the "model" section below for
+// the full rule). Right-click an already-selected cell to flip it and reach
+// its value plus the add-child/delete controls; double-click a visible value
+// to rewrite it.
 //
 // The Ajisai model is kept: everything is internally an exact real (a continued
 // fraction, handled by the Rust core; wired through WASM in a later slice), and
@@ -57,6 +60,15 @@ const kindOf = (raw) => (raw !== "" && numberRe.test(raw.trim()) ? "number" : "t
 // depth ≥ 2 cell — it is relative to its parent's children area; a parent
 // (depth 1) flows in the board instead of being positioned, since parents
 // cannot be dragged.
+//
+// A cell is a card with two faces (`flipped` selects which one renders): the
+// *front* is what you normally see — a leaf cell (no children yet) shows its
+// value there, but a cell with children shows a blank face instead, so the
+// nested children read as the cell's content rather than looking like they're
+// just captioned by a label. The *back* always shows the value (editable) plus
+// the "add child" / "delete" controls — right-click an already-selected cell
+// to flip it over and reach them; double-click a visible value (front or back)
+// to rewrite it.
 
 let idSeq = 0;
 const makeCell = (value = "", w = DEFAULT_W, h = DEFAULT_H) => ({
@@ -67,6 +79,7 @@ const makeCell = (value = "", w = DEFAULT_W, h = DEFAULT_H) => ({
   y: 0,
   w,
   h,
+  flipped: false,
 });
 
 const doc = { roots: [] };
@@ -191,10 +204,7 @@ function buildCell(cell, depth) {
     box.style.top = `${cell.y}px`;
   }
 
-  const val = el("div", "cell-value", cell.value);
-  val.dataset.kind = kindOf(cell.value);
-  if (cell.value === "") val.classList.add("blank");
-  box.append(val);
+  box.append(buildFace(cell, depth));
 
   if (depth < MAX_DEPTH) {
     const kids = el("div", "cell-children");
@@ -207,10 +217,53 @@ function buildCell(cell, depth) {
   box.append(handle);
   attachResize(handle, box, cell);
 
+  attachFlip(box, cell);
   if (depth > 1) attachDrag(box, cell);
   else attachSelectOnly(box, cell);
 
   return box;
+}
+
+/** The card face: a leaf (no children) shows its value on the front; a cell
+ *  with children shows a blank front instead (the nested children are its
+ *  visible content). The back (`cell.flipped`) always shows the value plus
+ *  the add-child / delete controls, regardless of leaf-ness. */
+function buildFace(cell, depth) {
+  const face = el("div", "cell-face");
+  const isLeaf = cell.children.length === 0;
+
+  if (!isLeaf && !cell.flipped) {
+    face.classList.add("blank");
+    return face;
+  }
+
+  if (cell.flipped) face.classList.add("back");
+  const val = el("div", "cell-value", cell.value);
+  val.dataset.kind = kindOf(cell.value);
+  if (cell.value === "") val.classList.add("blank");
+  face.append(val);
+
+  if (cell.flipped) {
+    const buttons = el("div", "face-buttons");
+
+    const addBtn = el("button", "face-btn", "+");
+    addBtn.title = depth < MAX_DEPTH ? `${LEVEL_JA[depth + 1]}セルを追加` : "最深階層（追加不可）";
+    addBtn.disabled = depth >= MAX_DEPTH;
+    addBtn.addEventListener("pointerdown", (e) => e.stopPropagation());
+    if (!addBtn.disabled) addBtn.addEventListener("click", (e) => { e.stopPropagation(); addChild(cell.id); });
+    buttons.append(addBtn);
+
+    const delBtn = el("button", "face-btn danger", "×");
+    delBtn.title = "このセルを削除";
+    delBtn.disabled = depth === 1 && doc.roots.length <= 1;
+    delBtn.addEventListener("pointerdown", (e) => e.stopPropagation());
+    if (!delBtn.disabled) delBtn.addEventListener("click", (e) => { e.stopPropagation(); removeCell(cell.id); });
+    buttons.append(delBtn);
+
+    face.append(buttons);
+  }
+
+  return face;
 }
 
 const boxOf = (id) => boardEl.querySelector(`.cell-box[data-id="${id}"]`);
@@ -304,6 +357,7 @@ function addChild(id) {
   child.y = PAD;
   siblings.push(child);
   growToFit(c.cell);
+  c.cell.flipped = false; // reveal the newly added child immediately
   renderBoard();
   select(child.id);
 }
@@ -474,6 +528,28 @@ function finishDrag(clientX, clientY, draggedId, grabDX, grabDY) {
   select(draggedId);
 }
 
+// ---- card flip (right-click an already-selected cell) ----------------------
+//
+// Right-click on a not-yet-selected cell just selects it, matching a plain
+// click — you look before you flip. Right-click it again (now selected) and
+// it flips: front ↔ back.
+
+function attachFlip(box, cell) {
+  box.addEventListener("contextmenu", (e) => {
+    e.preventDefault();
+    e.stopPropagation(); // see the comment in attachDrag; also keeps the empty-board menu from opening
+    closeMenu();
+    if (editing) commitEdit();
+    if (selectedId === cell.id) {
+      cell.flipped = !cell.flipped;
+      renderBoard();
+      select(cell.id);
+    } else {
+      select(cell.id);
+    }
+  });
+}
+
 /** A depth-1 (parent) cell can't be dragged, but it still selects on click. */
 function attachSelectOnly(box, cell) {
   box.addEventListener("pointerdown", (e) => {
@@ -496,15 +572,11 @@ boardEl.addEventListener("dblclick", (e) => {
   beginEdit();
 });
 
+// A right-click that lands on a cell is already handled (and stopped) by that
+// cell's own attachFlip listener, so this only ever fires for the empty board.
 boardEl.addEventListener("contextmenu", (e) => {
-  const box = e.target.closest(".cell-box");
   e.preventDefault();
-  if (box) {
-    select(box.dataset.id);
-    openCellMenu(e.clientX, e.clientY, box.dataset.id);
-  } else {
-    openBoardMenu(e.clientX, e.clientY);
-  }
+  openBoardMenu(e.clientX, e.clientY);
 });
 
 document.addEventListener("pointerdown", (e) => {
@@ -567,21 +639,6 @@ function menuItem(menu, label, enabled, onClick) {
   if (enabled) b.addEventListener("click", () => { onClick(); closeMenu(); focusBoard(); });
   menu.append(b);
   return b;
-}
-
-function openCellMenu(clientX, clientY, id) {
-  closeMenu();
-  const c = ctx(id);
-  if (!c) return;
-  const menu = el("div", "ctx-menu");
-  const childLabel = c.depth < MAX_DEPTH ? `${LEVEL_JA[c.depth + 1]}セルを追加` : "最深階層（追加不可）";
-  menuItem(menu, childLabel, c.depth < MAX_DEPTH, () => addChild(id));
-  const deletable = !(c.depth === 1 && doc.roots.length <= 1);
-  menuItem(menu, "このセルを削除", deletable, () => removeCell(id));
-  menu.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") { e.preventDefault(); closeMenu(); focusBoard(); }
-  });
-  placeMenu(menu, clientX, clientY);
 }
 
 function openBoardMenu(clientX, clientY) {

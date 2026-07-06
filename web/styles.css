@@ -183,9 +183,32 @@
     &.selected { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
   }
 
+  /* The card face: a leaf cell shows its value here by default; a cell with
+     children shows a blank strip instead (`.blank`) — that's the whole point
+     of the front/back split, so the nested children read as the cell's
+     content instead of looking captioned by a label. Right-click a selected
+     cell to flip to `.back`, which always shows the value plus controls. */
+  .cell-face {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+
+    &.blank {
+      block-size: 0.6rem;
+      border-radius: 4px;
+      background: repeating-linear-gradient(
+        135deg, var(--line) 0 3px, transparent 3px 7px
+      );
+      opacity: 0.6;
+    }
+
+    &.back { background: var(--accent-soft); border-radius: 5px; padding: 0.1rem; }
+  }
+
   /* The value line: the human-facing surface of the cell (double-click to edit). */
   .cell-value {
-    flex: none;
+    flex: 1 1 auto;
     min-block-size: 1.4em;
     min-inline-size: 2.5rem;
     padding: 0.15rem 0.35rem;
@@ -208,6 +231,31 @@
       text-align: start;
       overflow: visible;
     }
+  }
+
+  /* The back face's controls: add a child (disabled at the deepest level) or
+     delete this cell (disabled for a sole remaining parent). */
+  .face-buttons {
+    flex: none;
+    display: flex;
+    gap: 0.2rem;
+  }
+
+  .face-btn {
+    flex: none;
+    inline-size: 1.4rem;
+    block-size: 1.4rem;
+    border: 1px solid var(--line-strong);
+    border-radius: 5px;
+    background: var(--surface);
+    color: var(--ink);
+    font-size: 0.9rem;
+    line-height: 1;
+    cursor: pointer;
+
+    &:hover:not(:disabled) { background: var(--accent); color: var(--surface); border-color: var(--accent); }
+    &:disabled { color: var(--muted); cursor: default; opacity: 0.5; }
+    &.danger:hover:not(:disabled) { background: oklch(58% 0.18 25); border-color: oklch(58% 0.18 25); }
   }
 
   /* The children area: an interior canvas holding grid-snapped, absolutely
