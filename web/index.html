@@ -20,9 +20,9 @@
     <input id="formula-input" class="formula-input" aria-label="Cell content" spellcheck="false" autocomplete="off">
   </div>
 
-  <!-- The sheet canvas; the grid is built by app.js into #grid. -->
+  <!-- The sheet canvas; app.js lays out one or more named table cards into #sheet. -->
   <main class="canvas">
-    <section id="grid" class="grid" role="grid" aria-label="Sheet grid" tabindex="0"></section>
+    <div id="sheet" class="sheet-canvas" role="group" aria-label="Sheet" tabindex="0"></div>
   </main>
 
   <!-- Sheet tabs (bottom, Google Sheets style). -->
