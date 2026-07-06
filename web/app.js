@@ -1,16 +1,25 @@
 // Viscaria playground — nested-cell shell (five-level cell hierarchy).
 //
-// Basic-design change: a sheet no longer holds several named *tables*. Instead
-// it holds a forest of nested *cells*. A parent cell (階層1) can hold several
-// child cells (子, 階層2); a child can hold grandchildren (孫, 階層3); a
-// grandchild can hold great-grandchildren (ひ孫, 階層4); a great-grandchild can
-// hold great-great-grandchildren (玄孫, 階層5). Five levels total, so a
-// great-great-grandchild is always a leaf.
+// The document is a forest of nested cells five levels deep — parent (親,
+// level 1) → child (子) → grandchild (孫) → great-grandchild (ひ孫) →
+// great-great-grandchild (玄孫). There is no sheet wrapper: a sheet would sit
+// above the parent level and make the hierarchy read as six levels instead of
+// five, so the board *is* the document (no tabs, no multiple sheets).
 //
 // Every cell except a parent (階層1) can be moved by drag & drop in the normal
-// state: drop a cell onto another cell to make it that cell's child (move),
-// respecting the five-level cap; drop it onto the empty canvas to promote it to
-// a parent. Double-click a cell to rewrite its value.
+// state: drag it and drop it onto another cell to make it that cell's child
+// (move), respecting the five-level cap; drop it onto the empty board to
+// promote it to a parent. Dragging is implemented with pointer events (not
+// native HTML5 drag & drop) because nested `draggable` elements make the
+// browser pick the wrong ancestor to drag — pointer events give full control
+// over hit-testing and the five-level depth guard. A dropped/resized cell's
+// position and size snap to a grid so nested layouts stay tidy.
+//
+// Every cell (including a parent) can be resized via a corner handle — a cell
+// with children needs room to lay them out, so its size is the thing that
+// makes "build cells inside cells" practical.
+//
+// Double-click a cell to rewrite its value.
 //
 // The Ajisai model is kept: everything is internally an exact real (a continued
 // fraction, handled by the Rust core; wired through WASM in a later slice), and
@@ -24,29 +33,44 @@ const MAX_DEPTH = 5;
 // Level labels (階層1..5), for the name box breadcrumb and menus.
 const LEVEL_JA = ["", "親", "子", "孫", "ひ孫", "玄孫"];
 
+// Grid-snap and sizing constants (px). GRID must match `--grid` in styles.css
+// (the dot-grid background that makes the snap increment visible).
+const GRID = 16;
+const DEFAULT_W = 160;
+const DEFAULT_H = 96;
+const MIN_W = 64;
+const MIN_H = 48;
+const PAD = 8; // inner margin used when auto-placing/growing for new children
+const VALUE_RESERVE = 34; // approx rendered height of the value line, for sizing math
+
+const snap = (v) => Math.max(0, Math.round(v / GRID) * GRID);
+
 const numberRe = /^-?(\d+(\.\d+)?|\d+\/\d+)$/;
 const kindOf = (raw) => (raw !== "" && numberRe.test(raw.trim()) ? "number" : "text");
 
 // ---- model ------------------------------------------------------------------
 //
-// doc → sheets → roots (a forest of cells). A cell owns a raw value (its
-// human-facing surface, separate from the internal exact-real representation)
-// and an ordered list of child cells. Depth is positional (a cell's level is
-// how deep it sits in the forest, 1..5), so it is not stored on the cell.
+// doc.roots is a forest of cells — no sheet wrapper. A cell owns a raw value
+// (its human-facing surface, separate from the internal exact-real
+// representation), an ordered list of child cells, and a position (x, y) +
+// size (w, h) in pixels, all grid-snapped. Position is only meaningful for a
+// depth ≥ 2 cell — it is relative to its parent's children area; a parent
+// (depth 1) flows in the board instead of being positioned, since parents
+// cannot be dragged.
 
 let idSeq = 0;
-const makeCell = (value = "") => ({ id: `c${++idSeq}`, value, children: [] });
+const makeCell = (value = "", w = DEFAULT_W, h = DEFAULT_H) => ({
+  id: `c${++idSeq}`,
+  value,
+  children: [],
+  x: 0,
+  y: 0,
+  w,
+  h,
+});
 
-const doc = { sheets: [], active: 0 };
-
-function newSheet() {
-  const s = { name: `Sheet${doc.sheets.length + 1}`, roots: [] };
-  doc.sheets.push(s);
-  s.roots.push(makeCell()); // seed each sheet with one empty parent cell
-  return s;
-}
-
-const activeSheet = () => doc.sheets[doc.active];
+const doc = { roots: [] };
+doc.roots.push(makeCell()); // seed the document with one empty parent cell
 
 // ---- tree index (rebuilt each render) ---------------------------------------
 //
@@ -62,7 +86,7 @@ function reindex() {
     index.set(cell.id, { cell, parent, siblings, pos, depth, path });
     cell.children.forEach((ch, i) => walk(ch, cell, cell.children, i, depth + 1, [...path, i + 1]));
   };
-  activeSheet().roots.forEach((c, i) => walk(c, null, activeSheet().roots, i, 1, [i + 1]));
+  doc.roots.forEach((c, i) => walk(c, null, doc.roots, i, 1, [i + 1]));
 }
 
 const ctx = (id) => index.get(id) ?? null;
@@ -84,6 +108,12 @@ function isSelfOrAncestor(maybeAncestorId, cellId) {
   return false;
 }
 
+/** Whether a dragged cell may become a child at `newDepth` (1 = parent),
+ *  respecting the five-level cap. */
+function fitsAt(cell, newDepth) {
+  return newDepth >= 1 && newDepth + subtreeHeight(cell) - 1 <= MAX_DEPTH;
+}
+
 /** Detach a cell from its current siblings and return it. */
 function detach(id) {
   const c = ctx(id);
@@ -92,19 +122,40 @@ function detach(id) {
   return c.cell;
 }
 
-newSheet();
+/** Grow a cell so its own box fully contains its children's bounding box (used
+ *  after adding or reparenting a child) — the point of resizing is moot if a
+ *  freshly-added child is invisible outside the box. */
+function growToFit(cell) {
+  if (!cell.children.length) return;
+  const maxX = Math.max(...cell.children.map((ch) => ch.x + ch.w));
+  const maxY = Math.max(...cell.children.map((ch) => ch.y + ch.h));
+  cell.w = Math.max(cell.w, maxX + PAD);
+  cell.h = Math.max(cell.h, VALUE_RESERVE + maxY + PAD);
+}
+
+/** The minimum (w, h) a cell may be resized to: a floor, or (if it has
+ *  children) big enough to keep its children's bounding box inside. */
+function minSizeFor(cell) {
+  let minW = MIN_W, minH = MIN_H;
+  if (cell.children.length) {
+    const maxX = Math.max(...cell.children.map((ch) => ch.x + ch.w));
+    const maxY = Math.max(...cell.children.map((ch) => ch.y + ch.h));
+    minW = Math.max(minW, maxX + PAD);
+    minH = Math.max(minH, VALUE_RESERVE + maxY + PAD);
+  }
+  return { minW, minH };
+}
 
 // ---- DOM refs & state -------------------------------------------------------
 
-const sheetEl = document.getElementById("sheet");
+const boardEl = document.getElementById("board");
 const nameBox = document.getElementById("name-box");
 const formulaInput = document.getElementById("formula-input");
-const tabsEl = document.getElementById("sheet-tabs");
 
-let selectedId = activeSheet().roots[0].id;
+let selectedId = doc.roots[0].id;
 let editing = false;
 
-const focusSheet = () => sheetEl.focus();
+const focusBoard = () => boardEl.focus();
 
 // ---- rendering --------------------------------------------------------------
 
@@ -115,14 +166,14 @@ function el(tag, cls, text) {
   return n;
 }
 
-function renderSheet() {
+function renderBoard() {
   reindex();
-  // Keep the selection valid across structural edits (deletions, sheet switch).
+  // Keep the selection valid across structural edits (deletions).
   if (!index.has(selectedId)) {
-    selectedId = activeSheet().roots[0]?.id ?? null;
+    selectedId = doc.roots[0]?.id ?? null;
   }
-  sheetEl.replaceChildren();
-  for (const root of activeSheet().roots) sheetEl.append(buildCell(root, 1));
+  boardEl.replaceChildren();
+  for (const root of doc.roots) boardEl.append(buildCell(root, 1));
   renderSelection();
 }
 
@@ -130,25 +181,42 @@ function buildCell(cell, depth) {
   const box = el("div", "cell-box");
   box.dataset.id = cell.id;
   box.dataset.depth = String(depth);
-  if (depth > 1) box.draggable = true; // every cell but a parent can be moved
+  box.style.width = `${cell.w}px`;
+  box.style.height = `${cell.h}px`;
+  if (depth > 1) {
+    // Depth ≥ 2 cells are grid-positioned within their parent's children area;
+    // a parent (depth 1) flows in the board instead (it cannot be dragged).
+    box.classList.add("positioned");
+    box.style.left = `${cell.x}px`;
+    box.style.top = `${cell.y}px`;
+  }
 
   const val = el("div", "cell-value", cell.value);
   val.dataset.kind = kindOf(cell.value);
   if (cell.value === "") val.classList.add("blank");
   box.append(val);
 
-  if (cell.children.length) {
+  if (depth < MAX_DEPTH) {
     const kids = el("div", "cell-children");
     for (const ch of cell.children) kids.append(buildCell(ch, depth + 1));
     box.append(kids);
   }
+
+  const handle = el("div", "resize-handle");
+  handle.setAttribute("aria-hidden", "true");
+  box.append(handle);
+  attachResize(handle, box, cell);
+
+  if (depth > 1) attachDrag(box, cell);
+  else attachSelectOnly(box, cell);
+
   return box;
 }
 
-const boxOf = (id) => sheetEl.querySelector(`.cell-box[data-id="${id}"]`);
+const boxOf = (id) => boardEl.querySelector(`.cell-box[data-id="${id}"]`);
 
 function renderSelection() {
-  for (const b of sheetEl.querySelectorAll(".cell-box.selected")) b.classList.remove("selected");
+  for (const b of boardEl.querySelectorAll(".cell-box.selected")) b.classList.remove("selected");
   const c = ctx(selectedId);
   if (!c) {
     nameBox.value = "";
@@ -210,158 +278,232 @@ function commitEdit() {
   const val = boxOf(selectedId)?.querySelector(".cell-value");
   editing = false;
   if (c && val) c.cell.value = val.textContent.replace(/\n/g, "").trim();
-  renderSheet();
-  focusSheet();
+  renderBoard();
+  focusBoard();
 }
 
 function cancelEdit() {
   if (!editing) return;
   editing = false;
-  renderSheet();
-  focusSheet();
+  renderBoard();
+  focusBoard();
 }
 
 // ---- structural edits -------------------------------------------------------
 
-/** Add an empty child under a cell, if it is not already at the deepest level. */
+/** Add an empty child under a cell, if it is not already at the deepest level.
+ *  The new child is placed to the right of its last sibling (or at the
+ *  top-left corner if it's the first), and the parent grows to fit it. */
 function addChild(id) {
   const c = ctx(id);
   if (!c || c.depth >= MAX_DEPTH) return;
+  const siblings = c.cell.children;
+  const last = siblings[siblings.length - 1];
   const child = makeCell();
-  c.cell.children.push(child);
-  renderSheet();
+  child.x = last ? last.x + last.w + PAD : PAD;
+  child.y = PAD;
+  siblings.push(child);
+  growToFit(c.cell);
+  renderBoard();
   select(child.id);
 }
 
-/** Add a new empty parent cell (階層1) to the active sheet. */
+/** Add a new empty parent cell (階層1) to the board. */
 function addParent() {
   const p = makeCell();
-  activeSheet().roots.push(p);
-  renderSheet();
+  doc.roots.push(p);
+  renderBoard();
   select(p.id);
 }
 
-/** Remove a cell (and its subtree). A sheet keeps at least one parent cell. */
+/** Remove a cell (and its subtree). The board keeps at least one parent cell. */
 function removeCell(id) {
   const c = ctx(id);
   if (!c) return;
-  if (c.depth === 1 && activeSheet().roots.length <= 1) return; // keep one parent
+  if (c.depth === 1 && doc.roots.length <= 1) return; // keep one parent
   detach(id);
-  selectedId = c.parent ? c.parent.id : (activeSheet().roots[0]?.id ?? null);
-  renderSheet();
+  selectedId = c.parent ? c.parent.id : (doc.roots[0]?.id ?? null);
+  renderBoard();
 }
 
-// ---- drag & drop (move a cell) ----------------------------------------------
+// ---- resize (pointer-driven, grid-snapped) ----------------------------------
+
+function attachResize(handle, box, cell) {
+  handle.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    e.preventDefault();
+    closeMenu();
+    if (editing) commitEdit();
+    const startX = e.clientX, startY = e.clientY;
+    const origW = cell.w, origH = cell.h;
+    const { minW, minH } = minSizeFor(cell);
+    handle.setPointerCapture(e.pointerId);
+
+    const onMove = (ev) => {
+      cell.w = Math.max(minW, snap(origW + (ev.clientX - startX)));
+      cell.h = Math.max(minH, snap(origH + (ev.clientY - startY)));
+      box.style.width = `${cell.w}px`;
+      box.style.height = `${cell.h}px`;
+    };
+    const onUp = () => {
+      handle.releasePointerCapture(e.pointerId);
+      handle.removeEventListener("pointermove", onMove);
+      handle.removeEventListener("pointerup", onUp);
+    };
+    handle.addEventListener("pointermove", onMove);
+    handle.addEventListener("pointerup", onUp);
+  });
+}
+
+// ---- drag & drop (pointer-driven move / reparent) ---------------------------
 //
-// Drop a dragged cell onto a target cell to make it that cell's last child
-// (respecting the five-level cap: the target's depth + 1 plus the dragged
-// subtree's height must not exceed MAX_DEPTH, and a cell can't be dropped into
-// its own subtree). Drop onto the empty canvas to promote it to a parent.
+// Pointer events (not native HTML5 draggable) so nested cells hit-test
+// correctly — the browser's native DnD picks the outermost draggable ancestor,
+// which breaks for a cell nested inside another draggable cell. Dropping onto
+// a cell nests the dragged cell there (as its last child, grid-snapped
+// position); dropping onto empty board promotes it to a parent. Both respect
+// the five-level cap and refuse a drop into the dragged cell's own subtree.
 
-let dragId = null;
-
-/** Whether the dragged cell may become a child at `newDepth` (1 = parent). */
-function fitsAt(cell, newDepth) {
-  return newDepth >= 1 && newDepth + subtreeHeight(cell) - 1 <= MAX_DEPTH;
+/** What's under (clientX, clientY): a specific cell, the board itself, or
+ *  nothing (outside the document). */
+function dropCandidateAt(clientX, clientY) {
+  const hit = document.elementFromPoint(clientX, clientY);
+  if (!hit) return null;
+  const boxEl = hit.closest(".cell-box");
+  if (boxEl) return { kind: "cell", id: boxEl.dataset.id };
+  if (hit.closest("#board")) return { kind: "board" };
+  return null;
 }
 
-sheetEl.addEventListener("dragstart", (e) => {
-  const box = e.target.closest(".cell-box");
-  if (!box || box.dataset.depth === "1") return; // parents don't move
-  if (editing) commitEdit();
-  dragId = box.dataset.id;
-  box.classList.add("dragging");
-  e.dataTransfer.effectAllowed = "move";
-  e.dataTransfer.setData("text/plain", dragId);
-});
+/** Whether `cand` is a legal drop target for `dragged` (depth cap + no
+ *  dropping into its own subtree). */
+function dropIsValid(cand, dragged, draggedId) {
+  if (!cand) return false;
+  if (cand.kind === "board") return fitsAt(dragged, 1);
+  const t = ctx(cand.id);
+  return t != null && !isSelfOrAncestor(draggedId, cand.id) && fitsAt(dragged, t.depth + 1);
+}
 
-sheetEl.addEventListener("dragend", () => {
-  dragId = null;
-  for (const b of sheetEl.querySelectorAll(".drop-target, .dragging")) {
-    b.classList.remove("drop-target", "dragging");
-  }
-});
+function clearDropHighlight() {
+  for (const b of boardEl.querySelectorAll(".drop-target")) b.classList.remove("drop-target");
+  boardEl.classList.remove("drop-target");
+}
 
-sheetEl.addEventListener("dragover", (e) => {
-  if (!dragId) return;
-  const dragged = ctx(dragId)?.cell;
-  if (!dragged) return;
-  const box = e.target.closest(".cell-box");
-  for (const b of sheetEl.querySelectorAll(".drop-target")) b.classList.remove("drop-target");
+function highlightDropTarget(cand) {
+  clearDropHighlight();
+  if (!cand) return;
+  if (cand.kind === "board") boardEl.classList.add("drop-target");
+  else boxOf(cand.id)?.classList.add("drop-target");
+}
 
-  if (box) {
-    const targetId = box.dataset.id;
-    const t = ctx(targetId);
-    // Not into its own subtree, and the whole subtree must still fit.
-    if (!t || isSelfOrAncestor(dragId, targetId) || !fitsAt(dragged, t.depth + 1)) return;
-    e.preventDefault();
-    box.classList.add("drop-target");
-  } else {
-    // Empty canvas → promote to parent (階層1) if the subtree fits.
-    if (!fitsAt(dragged, 1)) return;
-    e.preventDefault();
-    sheetEl.classList.add("drop-target");
-  }
-});
+function attachDrag(box, cell) {
+  box.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    if (e.target.closest(".cell-value.editing")) return; // let caret placement work
+    if (e.target.closest(".resize-handle")) return;
+    // Stop the bubble here: without this, a pointerdown on a nested cell also
+    // reaches every ancestor cell-box's own listener (they all sit on the same
+    // DOM path), and each one would start its own drag/select for itself.
+    e.stopPropagation();
+    // With the bubble stopped, the document-level "click outside closes the
+    // menu" listener never sees a click that lands on a cell — close it here
+    // instead, unconditionally, so a stray menu doesn't linger.
+    closeMenu();
+    if (editing) commitEdit();
 
-sheetEl.addEventListener("dragleave", (e) => {
-  if (e.target === sheetEl) sheetEl.classList.remove("drop-target");
-});
+    const startX = e.clientX, startY = e.clientY;
+    const rect = box.getBoundingClientRect();
+    const grabDX = startX - rect.left, grabDY = startY - rect.top;
+    let dragging = false;
 
-sheetEl.addEventListener("drop", (e) => {
-  if (!dragId) return;
-  const dragged = ctx(dragId)?.cell;
-  if (!dragged) return;
-  const box = e.target.closest(".cell-box");
-  sheetEl.classList.remove("drop-target");
+    const onMove = (ev) => {
+      if (!dragging) {
+        if (Math.abs(ev.clientX - startX) + Math.abs(ev.clientY - startY) < 4) return;
+        dragging = true;
+        box.classList.add("dragging");
+        box.style.position = "fixed";
+        box.style.left = `${rect.left}px`;
+        box.style.top = `${rect.top}px`;
+        box.style.pointerEvents = "none"; // so elementFromPoint sees what's beneath it
+        box.setPointerCapture(e.pointerId);
+      }
+      box.style.left = `${ev.clientX - grabDX}px`;
+      box.style.top = `${ev.clientY - grabDY}px`;
+      const cand = dropCandidateAt(ev.clientX, ev.clientY);
+      highlightDropTarget(dropIsValid(cand, cell, cell.id) ? cand : null);
+    };
+    const onUp = (ev) => {
+      box.removeEventListener("pointermove", onMove);
+      box.removeEventListener("pointerup", onUp);
+      if (!dragging) { select(cell.id); return; }
+      box.releasePointerCapture(e.pointerId);
+      clearDropHighlight();
+      finishDrag(ev.clientX, ev.clientY, cell.id, grabDX, grabDY);
+    };
+    box.addEventListener("pointermove", onMove);
+    box.addEventListener("pointerup", onUp);
+  });
+}
 
-  if (box) {
-    const targetId = box.dataset.id;
-    const t = ctx(targetId);
-    if (!t || isSelfOrAncestor(dragId, targetId) || !fitsAt(dragged, t.depth + 1)) return;
-    e.preventDefault();
-    const moved = detach(dragId);
-    t.cell.children.push(moved); // reindex below resolves t.cell by identity
-    renderSheet();
+function finishDrag(clientX, clientY, draggedId, grabDX, grabDY) {
+  const dragged = ctx(draggedId)?.cell;
+  const cand = dragged ? dropCandidateAt(clientX, clientY) : null;
+  if (dragged && dropIsValid(cand, dragged, draggedId)) {
+    if (cand.kind === "board") {
+      const moved = detach(draggedId);
+      doc.roots.push(moved);
+      renderBoard();
+      select(moved.id);
+      return;
+    }
+    const t = ctx(cand.id);
+    const areaRect = boxOf(cand.id)?.querySelector(".cell-children")?.getBoundingClientRect();
+    const moved = detach(draggedId);
+    if (areaRect) {
+      moved.x = Math.max(0, snap(clientX - grabDX - areaRect.left));
+      moved.y = Math.max(0, snap(clientY - grabDY - areaRect.top));
+    }
+    t.cell.children.push(moved);
+    growToFit(t.cell);
+    renderBoard();
     select(moved.id);
-  } else {
-    if (!fitsAt(dragged, 1)) return;
-    e.preventDefault();
-    const moved = detach(dragId);
-    activeSheet().roots.push(moved);
-    renderSheet();
-    select(moved.id);
+    return;
   }
-});
+  renderBoard(); // invalid drop: snap back (re-render discards the fixed-position ghost)
+  select(draggedId);
+}
 
-// ---- pointer & keyboard events ----------------------------------------------
+/** A depth-1 (parent) cell can't be dragged, but it still selects on click. */
+function attachSelectOnly(box, cell) {
+  box.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    if (e.target.closest(".cell-value.editing")) return;
+    if (e.target.closest(".resize-handle")) return;
+    e.stopPropagation(); // see the comment in attachDrag
+    closeMenu();
+    if (editing) commitEdit();
+    select(cell.id);
+  });
+}
 
-// A click selects the innermost cell under the pointer; a double-click edits it.
-// Listening on the value element's `.cell-box` via closest keeps a child click
-// from also selecting its ancestors.
-sheetEl.addEventListener("mousedown", (e) => {
-  if (e.button !== 0) return;
-  const box = e.target.closest(".cell-box");
-  if (!box) return;
-  if (editing) commitEdit();
-  select(box.dataset.id);
-});
+// ---- pointer & keyboard events -----------------------------------------------
 
-sheetEl.addEventListener("dblclick", (e) => {
+boardEl.addEventListener("dblclick", (e) => {
   const box = e.target.closest(".cell-box");
   if (!box) return;
   select(box.dataset.id);
   beginEdit();
 });
 
-sheetEl.addEventListener("contextmenu", (e) => {
+boardEl.addEventListener("contextmenu", (e) => {
   const box = e.target.closest(".cell-box");
   e.preventDefault();
   if (box) {
     select(box.dataset.id);
     openCellMenu(e.clientX, e.clientY, box.dataset.id);
   } else {
-    openCanvasMenu(e.clientX, e.clientY);
+    openBoardMenu(e.clientX, e.clientY);
   }
 });
 
@@ -369,7 +511,7 @@ document.addEventListener("pointerdown", (e) => {
   if (ctxMenu && !ctxMenu.contains(e.target)) closeMenu();
 });
 
-sheetEl.addEventListener("keydown", (e) => {
+boardEl.addEventListener("keydown", (e) => {
   if (editing) {
     if (e.key === "Enter") { e.preventDefault(); commitEdit(); }
     else if (e.key === "Escape") { e.preventDefault(); cancelEdit(); }
@@ -395,11 +537,11 @@ formulaInput.addEventListener("keydown", (e) => {
     e.preventDefault();
     const c = ctx(selectedId);
     if (c) c.cell.value = formulaInput.value.trim();
-    renderSheet();
-    focusSheet();
+    renderBoard();
+    focusBoard();
   } else if (e.key === "Escape") {
     renderSelection();
-    focusSheet();
+    focusBoard();
   }
 });
 
@@ -422,7 +564,7 @@ function placeMenu(menu, clientX, clientY) {
 function menuItem(menu, label, enabled, onClick) {
   const b = el("button", "ctx-item", label);
   b.disabled = !enabled;
-  if (enabled) b.addEventListener("click", () => { onClick(); closeMenu(); focusSheet(); });
+  if (enabled) b.addEventListener("click", () => { onClick(); closeMenu(); focusBoard(); });
   menu.append(b);
   return b;
 }
@@ -434,56 +576,26 @@ function openCellMenu(clientX, clientY, id) {
   const menu = el("div", "ctx-menu");
   const childLabel = c.depth < MAX_DEPTH ? `${LEVEL_JA[c.depth + 1]}セルを追加` : "最深階層（追加不可）";
   menuItem(menu, childLabel, c.depth < MAX_DEPTH, () => addChild(id));
-  const deletable = !(c.depth === 1 && activeSheet().roots.length <= 1);
+  const deletable = !(c.depth === 1 && doc.roots.length <= 1);
   menuItem(menu, "このセルを削除", deletable, () => removeCell(id));
   menu.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") { e.preventDefault(); closeMenu(); focusSheet(); }
+    if (e.key === "Escape") { e.preventDefault(); closeMenu(); focusBoard(); }
   });
   placeMenu(menu, clientX, clientY);
 }
 
-function openCanvasMenu(clientX, clientY) {
+function openBoardMenu(clientX, clientY) {
   closeMenu();
   const menu = el("div", "ctx-menu");
   menuItem(menu, "親セルを追加", true, addParent);
   menu.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") { e.preventDefault(); closeMenu(); focusSheet(); }
+    if (e.key === "Escape") { e.preventDefault(); closeMenu(); focusBoard(); }
   });
   placeMenu(menu, clientX, clientY);
 }
 
-// ---- sheet tabs -------------------------------------------------------------
-
-function renderTabs() {
-  tabsEl.replaceChildren();
-  doc.sheets.forEach((s, i) => {
-    const b = el("button", null, s.name);
-    b.setAttribute("aria-selected", String(i === doc.active));
-    b.addEventListener("click", () => switchSheet(i));
-    tabsEl.append(b);
-  });
-  const add = el("button", "add", "+");
-  add.setAttribute("aria-label", "Add sheet");
-  add.addEventListener("click", addSheet);
-  tabsEl.append(add);
-}
-
-function switchSheet(i) {
-  if (editing) commitEdit();
-  doc.active = i;
-  selectedId = activeSheet().roots[0]?.id ?? null;
-  renderSheet();
-  renderTabs();
-}
-
-function addSheet() {
-  newSheet();
-  switchSheet(doc.sheets.length - 1);
-}
-
 // ---- boot -------------------------------------------------------------------
 
-renderSheet();
-renderTabs();
-select(activeSheet().roots[0].id);
-focusSheet();
+renderBoard();
+select(doc.roots[0].id);
+focusBoard();

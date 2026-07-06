@@ -12,8 +12,8 @@
 
 @layer tokens {
   :root {
-    --cell: 2.4rem;              /* square cell edge */
     --radius: 10px;              /* context-menu corners */
+    --grid: 16px;                /* drag/resize snap increment — must match GRID in app.js */
 
     color-scheme: light dark;
     --bg: oklch(98.5% 0.004 260);
@@ -82,9 +82,10 @@
     }
 
     & .name-box {
-      /* Shows the selected cell's breadcrumb path (親1 › 子2 › 孫1) — the way
-         to read where a cell sits in the five-level hierarchy. */
-      inline-size: 16ch;
+      /* Shows the selected cell's full breadcrumb path (親1 › 子1 › 孫1 › ひ孫1
+         › 玄孫1 at the deepest level) — wide enough for all five segments,
+         since CJK glyphs render wider than the `ch` unit assumes. */
+      inline-size: 30ch;
       text-align: center;
       font-weight: 550;
       border-inline-end: 1px solid var(--line);
@@ -115,18 +116,19 @@
     background: var(--bg);
   }
 
-  /* A sheet holds a forest of nested cells laid out top-to-bottom; parent cells
-     (階層1) flow down the canvas and are added by right-clicking (see .ctx-menu).
-     It is also the drop zone that promotes a dragged cell to a parent. */
-  .sheet-canvas {
+  /* The board is the whole document — no sheet wraps it. Parent cells (階層1)
+     flow left-to-right, wrapping as needed, and are added by right-clicking
+     the empty board (see .ctx-menu). It is also the drop zone that promotes a
+     dragged cell to a parent. */
+  .board {
     display: flex;
-    flex-direction: column;
+    flex-flow: row wrap;
     align-items: start;
-    gap: 0.6rem;
+    gap: 0.75rem;
     min-block-size: 100%;
     outline: none;
 
-    /* Highlighted while a dragged cell hovers empty canvas (→ becomes a parent). */
+    /* Highlighted while a dragged cell hovers empty board (→ becomes a parent). */
     &.drop-target { outline: 2px dashed var(--accent); outline-offset: -6px; }
   }
 
@@ -146,46 +148,28 @@
     box-shadow: 0 10px 30px oklch(0% 0 0 / 0.22);
     font-size: 0.82rem;
   }
-
-  .sheet-tabs {
-    display: flex;
-    align-items: center;
-    gap: 0.25rem;
-    padding: 0.3rem 0.6rem;
-    background: var(--surface);
-    border-block-start: 1px solid var(--line);
-
-    & button {
-      border: 1px solid transparent;
-      background: transparent;
-      color: var(--muted);
-      padding: 0.25rem 0.7rem;
-      border-radius: 7px;
-      cursor: pointer;
-
-      &:hover { background: var(--head-bg); }
-      &[aria-selected="true"] { color: var(--ink); background: var(--head-bg); border-color: var(--line-strong); font-weight: 550; }
-      &.add { font-size: 1.1rem; line-height: 1; padding-inline: 0.55rem; }
-    }
-  }
 }
 
 @layer cells {
-  /* A cell is a nested box: it shows its own value, then (indented) its child
-     cells. Depth is carried in data-depth (1..5); deeper levels are tinted a
-     touch more so the five-level nesting reads at a glance. Parent cells (階層1)
-     are non-draggable; every deeper cell is draggable to move it. */
+  /* A cell is a nested box: a value line, then its children area (an interior
+     canvas holding child cells). Depth is carried in data-depth (1..5); deeper
+     levels are tinted a touch more so the five-level nesting reads at a
+     glance. A parent (階層1, position: relative, laid out by the board's flex
+     flow) cannot be dragged; every deeper cell (.positioned, position:
+     absolute within its parent's children area) can be, and grid-snaps as it
+     moves. Every cell — parent included — has a resize handle, because a
+     cell's size is what makes room to build cells inside it. */
   .cell-box {
     --pad: 0.4rem;
+    position: relative;
     display: flex;
     flex-direction: column;
-    gap: 0.35rem;
-    min-inline-size: 3rem;
     padding: var(--pad);
     background: var(--surface);
     border: 1px solid var(--line-strong);
     border-radius: 8px;
     font-variant-numeric: tabular-nums;
+    box-sizing: border-box;
 
     /* Progressive tint by depth (parent lightest → 玄孫 most tinted). */
     &[data-depth="2"] { background: color-mix(in oklch, var(--surface), var(--accent) 4%); }
@@ -193,25 +177,28 @@
     &[data-depth="4"] { background: color-mix(in oklch, var(--surface), var(--accent) 12%); }
     &[data-depth="5"] { background: color-mix(in oklch, var(--surface), var(--accent) 16%); }
 
-    &[draggable="true"] { cursor: grab; }
-    &.dragging { opacity: 0.5; cursor: grabbing; }
+    &.positioned { cursor: grab; }
+    &.dragging { cursor: grabbing; box-shadow: 0 8px 24px oklch(0% 0 0 / 0.22); }
     &.drop-target { outline: 2px dashed var(--accent); outline-offset: 2px; }
     &.selected { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
   }
 
   /* The value line: the human-facing surface of the cell (double-click to edit). */
   .cell-value {
+    flex: none;
     min-block-size: 1.4em;
     min-inline-size: 2.5rem;
     padding: 0.15rem 0.35rem;
     border-radius: 5px;
     font-size: 0.85rem;
     white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
     cursor: text;
 
     &[data-kind="number"] { text-align: end; font-family: var(--mono); }
     &[data-kind="text"] { text-align: start; }
-    &.blank { min-inline-size: 3rem; background: var(--head-bg); }
+    &.blank { background: var(--head-bg); }
 
     &.editing {
       outline: 2px solid var(--accent);
@@ -219,15 +206,37 @@
       background: var(--surface);
       white-space: pre;
       text-align: start;
+      overflow: visible;
     }
   }
 
-  /* The children container: a horizontal row of nested child cells that wraps. */
+  /* The children area: an interior canvas holding grid-snapped, absolutely
+     positioned child cells. The dot grid makes the snap increment visible —
+     it's where a dragged/resized cell will land. */
   .cell-children {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: start;
-    gap: 0.35rem;
+    flex: 1 1 auto;
+    position: relative;
+    margin-block-start: 0.35rem;
+    min-block-size: calc(var(--grid) * 2);
+    border-radius: 6px;
+    background-color: var(--head-bg);
+    background-image: radial-gradient(circle, var(--line-strong) 1px, transparent 1px);
+    background-size: var(--grid) var(--grid);
+  }
+
+  /* Corner resize handle, bottom-right of every cell. */
+  .resize-handle {
+    position: absolute;
+    inset-inline-end: 0;
+    inset-block-end: 0;
+    inline-size: 0.85rem;
+    block-size: 0.85rem;
+    cursor: nwse-resize;
+    touch-action: none;
+    background: linear-gradient(135deg, transparent 55%, var(--line-strong) 55%);
+    border-end-end-radius: 7px;
+
+    &:hover { background: linear-gradient(135deg, transparent 55%, var(--accent) 55%); }
   }
 
   /* Clickable rows in a context menu. */
