@@ -114,6 +114,49 @@
     background: var(--bg);
   }
 
+  /* A sheet holds several named table cards, stacked and left-aligned. */
+  .sheet-canvas {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1.4rem;
+    outline: none;
+  }
+
+  .table-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+
+  /* The table name is its namespace (Table1.B3) — a small editable label. */
+  .table-name {
+    align-self: flex-start;
+    padding: 0.1rem 0.45rem;
+    font-family: var(--mono);
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--muted);
+    border-radius: 6px;
+    cursor: text;
+    outline: none;
+
+    &:hover { background: var(--head-bg); color: var(--ink); }
+    &.editing { background: var(--surface); color: var(--ink); outline: 2px solid var(--accent); }
+  }
+
+  .add-table {
+    align-self: flex-start;
+    border: 1px dashed var(--line-strong);
+    background: transparent;
+    color: var(--muted);
+    padding: 0.35rem 0.85rem;
+    border-radius: 8px;
+    cursor: pointer;
+
+    &:hover { background: var(--head-bg); color: var(--ink); }
+  }
+
   .sheet-tabs {
     display: flex;
     align-items: center;
