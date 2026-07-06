@@ -9,11 +9,15 @@ plant, continuing Ajisai's (hydrangea) botanical lineage.
 ## Playground
 
 A live playground is published to GitHub Pages from `web/` (a build-free static site).
-The shell is a **five-level nested-cell** canvas: a parent cell (親, level 1) holds child
+The shell is a **five-level nested-cell** board: a parent cell (親, level 1) holds child
 cells (子), which hold grandchildren (孫), then great-grandchildren (ひ孫), then
-great-great-grandchildren (玄孫) — five levels total. Every cell but a parent can be moved
-by drag & drop (drop onto a cell to nest it there, respecting the five-level cap; drop onto
-the empty canvas to promote it to a parent), and a double-click rewrites a cell's value.
+great-great-grandchildren (玄孫) — five levels total. Every cell is a **two-faced card**:
+the front of a leaf cell is its value (double-click to edit), while a cell with children
+shows the children themselves, filling the card; right-click a selected cell to flip it
+over to the back, where its **name** lives (double-click to rename) along with the
+add-child/delete controls. Every cell but a parent moves by drag & drop with grid snap
+(drop onto a cell to nest it there, respecting the five-level cap; drop onto the empty
+board to promote it to a parent), and every cell resizes by its corner handle.
 Exact-arithmetic evaluation is wired next, through the Rust core compiled to WASM — the
 cell's raw text is the human-facing surface, kept separate from the internal exact-real
 representation, and deliberately not faked in JS floats, because exactness is the point.

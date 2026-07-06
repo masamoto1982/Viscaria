@@ -151,105 +151,150 @@
 }
 
 @layer cells {
-  /* A cell is a nested box: a value line, then its children area (an interior
-     canvas holding child cells). Depth is carried in data-depth (1..5); deeper
-     levels are tinted a touch more so the five-level nesting reads at a
-     glance. A parent (階層1, position: relative, laid out by the board's flex
-     flow) cannot be dragged; every deeper cell (.positioned, position:
-     absolute within its parent's children area) can be, and grid-snaps as it
-     moves. Every cell — parent included — has a resize handle, because a
-     cell's size is what makes room to build cells inside it. */
+  /* A cell is a two-faced card. The box owns geometry (grid-snapped position
+     and size, depth tint, selection ring); the .card inside holds the two
+     faces, and .flipped on the box decides which face shows. Depth is carried
+     in data-depth (1..5); deeper levels are tinted a touch more so the
+     five-level nesting reads at a glance. A 親 (depth 1) flows on the board
+     and can't be dragged; every deeper cell (.positioned) is absolute within
+     its parent's front face and drags with grid snap. Every cell has a corner
+     resize handle — a cell's size is the room for the cells inside it. */
   .cell-box {
-    --pad: 0.4rem;
     position: relative;
-    display: flex;
-    flex-direction: column;
-    padding: var(--pad);
     background: var(--surface);
     border: 1px solid var(--line-strong);
     border-radius: 8px;
     font-variant-numeric: tabular-nums;
-    box-sizing: border-box;
 
-    /* Progressive tint by depth (parent lightest → 玄孫 most tinted). */
+    /* Progressive tint by depth (親 lightest → 玄孫 most tinted). */
     &[data-depth="2"] { background: color-mix(in oklch, var(--surface), var(--accent) 4%); }
     &[data-depth="3"] { background: color-mix(in oklch, var(--surface), var(--accent) 8%); }
     &[data-depth="4"] { background: color-mix(in oklch, var(--surface), var(--accent) 12%); }
     &[data-depth="5"] { background: color-mix(in oklch, var(--surface), var(--accent) 16%); }
 
-    &.positioned { cursor: grab; }
-    &.dragging { cursor: grabbing; box-shadow: 0 8px 24px oklch(0% 0 0 / 0.22); }
+    &.positioned { position: absolute; cursor: grab; }
+    &.dragging { cursor: grabbing; box-shadow: 0 8px 24px oklch(0% 0 0 / 0.25); z-index: 100; }
     &.drop-target { outline: 2px dashed var(--accent); outline-offset: 2px; }
     &.selected { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+
+    /* One-shot turn animation when the card flips (class added after render). */
+    &.flipping { animation: card-turn 0.18s ease-out; }
   }
 
-  /* The card face: a leaf cell shows its value here by default; a cell with
-     children shows a blank strip instead (`.blank`) — that's the whole point
-     of the front/back split, so the nested children read as the cell's
-     content instead of looking captioned by a label. Right-click a selected
-     cell to flip to `.back`, which always shows the value plus controls. */
-  .cell-face {
-    flex: none;
+  @keyframes card-turn {
+    from { transform: scaleX(0.15); }
+    to { transform: scaleX(1); }
+  }
+
+  .card {
+    position: absolute;
+    inset: 0;
+    border-radius: 7px; /* box radius minus border */
+    overflow: hidden;
+  }
+
+  /* Exactly one face shows at a time — flipping hides the front entirely,
+     children included, like turning over a real card. */
+  .face {
+    position: absolute;
+    inset: 0;
     display: flex;
+  }
+  .face.back { display: none; }
+  .cell-box.flipped .face.front { display: none; }
+  .cell-box.flipped .face.back { display: flex; }
+
+  /* Leaf front: the whole face IS the value (double-click to edit). */
+  .face.front {
     align-items: center;
-    gap: 0.3rem;
 
-    &.blank {
-      block-size: 0.6rem;
-      border-radius: 4px;
-      background: repeating-linear-gradient(
-        135deg, var(--line) 0 3px, transparent 3px 7px
-      );
-      opacity: 0.6;
+    & .cell-value {
+      inline-size: 100%;
+      max-block-size: 100%;
+      padding: 0.25rem 0.5rem;
+      font-size: 0.9rem;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      cursor: text;
+
+      &[data-kind="number"] { text-align: end; font-family: var(--mono); }
+      &[data-kind="text"] { text-align: start; }
+
+      &.editing {
+        outline: 2px solid var(--accent);
+        outline-offset: -2px;
+        border-radius: 5px;
+        background: var(--surface);
+        white-space: pre;
+        text-align: start;
+      }
     }
-
-    &.back { background: var(--accent-soft); border-radius: 5px; padding: 0.1rem; }
   }
 
-  /* The value line: the human-facing surface of the cell (double-click to edit). */
-  .cell-value {
-    flex: 1 1 auto;
-    min-block-size: 1.4em;
-    min-inline-size: 2.5rem;
-    padding: 0.15rem 0.35rem;
+  /* Non-leaf front: the children canvas fills the card. The dot grid marks
+     the snap increment — where a dragged or resized cell will land. */
+  .cell-children {
+    position: absolute;
+    inset: 0;
+    background-image: radial-gradient(circle, var(--line) 1px, transparent 1px);
+    background-size: var(--grid) var(--grid);
+    background-position: calc(var(--grid) / 2) calc(var(--grid) / 2);
+  }
+
+  /* The back of the card: the cell's name (double-click to rename) and the
+     structural controls. Styled like a card back — patterned, clearly not
+     the content side. */
+  .face.back {
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    background:
+      repeating-linear-gradient(135deg, var(--accent-soft) 0 2px, transparent 2px 8px),
+      var(--head-bg);
+  }
+
+  .cell-name {
+    max-inline-size: calc(100% - 1rem);
+    min-inline-size: 3rem;
+    padding: 0.1rem 0.45rem;
     border-radius: 5px;
     font-size: 0.85rem;
+    font-weight: 600;
+    text-align: center;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    background: var(--surface);
+    border: 1px solid var(--line);
     cursor: text;
 
-    &[data-kind="number"] { text-align: end; font-family: var(--mono); }
-    &[data-kind="text"] { text-align: start; }
-    &.blank { background: var(--head-bg); }
+    /* Unnamed cell: show a quiet placeholder on the empty editable. */
+    &:empty::before { content: "名前"; color: var(--muted); font-weight: 400; }
 
     &.editing {
       outline: 2px solid var(--accent);
       outline-offset: -2px;
-      background: var(--surface);
       white-space: pre;
-      text-align: start;
       overflow: visible;
+      &:empty::before { content: none; }
     }
   }
 
-  /* The back face's controls: add a child (disabled at the deepest level) or
-     delete this cell (disabled for a sole remaining parent). */
   .face-buttons {
-    flex: none;
     display: flex;
-    gap: 0.2rem;
+    gap: 0.3rem;
   }
 
   .face-btn {
-    flex: none;
-    inline-size: 1.4rem;
-    block-size: 1.4rem;
+    inline-size: 1.5rem;
+    block-size: 1.5rem;
     border: 1px solid var(--line-strong);
-    border-radius: 5px;
+    border-radius: 6px;
     background: var(--surface);
     color: var(--ink);
-    font-size: 0.9rem;
+    font-size: 0.85rem;
     line-height: 1;
     cursor: pointer;
 
@@ -258,27 +303,14 @@
     &.danger:hover:not(:disabled) { background: oklch(58% 0.18 25); border-color: oklch(58% 0.18 25); }
   }
 
-  /* The children area: an interior canvas holding grid-snapped, absolutely
-     positioned child cells. The dot grid makes the snap increment visible —
-     it's where a dragged/resized cell will land. */
-  .cell-children {
-    flex: 1 1 auto;
-    position: relative;
-    margin-block-start: 0.35rem;
-    min-block-size: calc(var(--grid) * 2);
-    border-radius: 6px;
-    background-color: var(--head-bg);
-    background-image: radial-gradient(circle, var(--line-strong) 1px, transparent 1px);
-    background-size: var(--grid) var(--grid);
-  }
-
-  /* Corner resize handle, bottom-right of every cell. */
+  /* Corner resize handle — above both faces. */
   .resize-handle {
     position: absolute;
     inset-inline-end: 0;
     inset-block-end: 0;
     inline-size: 0.85rem;
     block-size: 0.85rem;
+    z-index: 5;
     cursor: nwse-resize;
     touch-action: none;
     background: linear-gradient(135deg, transparent 55%, var(--line-strong) 55%);
@@ -287,7 +319,7 @@
     &:hover { background: linear-gradient(135deg, transparent 55%, var(--accent) 55%); }
   }
 
-  /* Clickable rows in a context menu. */
+  /* Clickable rows in the board's context menu. */
   .ctx-menu .ctx-item {
     text-align: start;
     padding: 0.35rem 0.5rem;
