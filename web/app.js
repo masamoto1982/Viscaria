@@ -57,10 +57,14 @@ const kindOf = (raw) => (raw !== "" && numberRe.test(raw.trim()) ? "number" : "t
 // ---- model ------------------------------------------------------------------
 //
 // doc → sheets → tables → cells. A table owns its own grid dimensions, its
-// free-floating position (x, y) on the sheet, a stacking order (z), and a
-// sparse map of address → raw text. Table names are document-unique namespaces;
-// `cellEls` is transient render state (rebuilt each render), not part of the
-// document.
+// free-floating position (x, y) on the sheet, a stacking order (z), a sparse
+// map of address → raw text, and a list of merged regions. Table names are
+// document-unique namespaces; `cellEls` is transient render state (rebuilt each
+// render), not part of the document.
+//
+// A merged region `{ c, r, cw, rh }` is one cell (its anchor is the top-left
+// (c, r)) occupying a cw×rh rectangle; the covered addresses have no identity of
+// their own and resolve to the anchor (design note §3.3).
 
 let idSeq = 0;
 let zTop = 0; // most-recently-touched table floats above the rest
@@ -73,8 +77,52 @@ const makeTable = (name, cols = DEFAULT_COLS, rows = DEFAULT_ROWS, x = 24, y = 2
   y,
   z: ++zTop,
   cells: new Map(),
+  merges: [],
   cellEls: new Map(),
 });
+
+// ---- merged regions ---------------------------------------------------------
+
+/** The merge region covering cell (c, r), or null. */
+function mergeAt(t, c, r) {
+  for (const m of t.merges) {
+    if (c >= m.c && c < m.c + m.cw && r >= m.r && r < m.r + m.rh) return m;
+  }
+  return null;
+}
+
+/** True if (c, r) is inside a merge but is not its anchor (i.e. hidden). */
+function isCovered(t, c, r) {
+  const m = mergeAt(t, c, r);
+  return m != null && !(m.c === c && m.r === r);
+}
+
+/** Merge the normalized rectangle into one cell. Absorbs any intersecting
+ *  merges and drops the covered cells' contents (the anchor's value survives).
+ *  Returns false for a single-cell rectangle (nothing to merge). */
+function mergeRange(t, c0, r0, c1, r1) {
+  const cc0 = Math.min(c0, c1), rr0 = Math.min(r0, r1);
+  const cc1 = Math.max(c0, c1), rr1 = Math.max(r0, r1);
+  if (cc0 === cc1 && rr0 === rr1) return false;
+  t.merges = t.merges.filter(
+    (m) => !(m.c <= cc1 && m.c + m.cw - 1 >= cc0 && m.r <= rr1 && m.r + m.rh - 1 >= rr0),
+  );
+  for (let r = rr0; r <= rr1; r++) {
+    for (let c = cc0; c <= cc1; c++) {
+      if (!(c === cc0 && r === rr0)) t.cells.delete(addr(c, r));
+    }
+  }
+  t.merges.push({ c: cc0, r: rr0, cw: cc1 - cc0 + 1, rh: rr1 - rr0 + 1 });
+  return true;
+}
+
+/** Remove the merge covering (c, r), if any. Returns whether one was removed. */
+function unmergeAt(t, c, r) {
+  const m = mergeAt(t, c, r);
+  if (!m) return false;
+  t.merges = t.merges.filter((x) => x !== m);
+  return true;
+}
 
 const doc = { sheets: [], active: 0 };
 
@@ -143,9 +191,18 @@ const formulaInput = document.getElementById("formula-input");
 const tabsEl = document.getElementById("sheet-tabs");
 
 let selected = { tableId: activeSheet().tables[0].id, c: 0, r: 0 };
+let anchor = { c: 0, r: 0 }; // other corner of the multi-cell selection
 let editing = false;
 
 const focusSheet = () => sheetEl.focus();
+
+/** The current selection rectangle [c0, r0, c1, r1] (anchor ↔ focus), normalized. */
+function normRange() {
+  return [
+    Math.min(anchor.c, selected.c), Math.min(anchor.r, selected.r),
+    Math.max(anchor.c, selected.c), Math.max(anchor.r, selected.r),
+  ];
+}
 
 // ---- rendering --------------------------------------------------------------
 
@@ -186,18 +243,35 @@ function buildTableCard(t) {
   grid.style.setProperty("--cols", t.cols);
   grid.style.setProperty("--rows", t.rows);
 
-  grid.append(el("div", "corner"));
-  for (let c = 0; c < t.cols; c++) grid.append(el("div", "colhead", colLabel(c)));
+  // Everything is placed on explicit grid lines (column 1 / row 1 are the
+  // header bands), so skipping a merge's covered cells never shifts the layout.
+  const corner = el("div", "corner");
+  corner.style.gridArea = "1 / 1";
+  grid.append(corner);
+  for (let c = 0; c < t.cols; c++) {
+    const h = el("div", "colhead", colLabel(c));
+    h.style.gridColumn = String(c + 2);
+    h.style.gridRow = "1";
+    grid.append(h);
+  }
 
   t.cellEls.clear();
   for (let r = 0; r < t.rows; r++) {
-    grid.append(el("div", "rowhead", String(r + 1)));
+    const rh = el("div", "rowhead", String(r + 1));
+    rh.style.gridColumn = "1";
+    rh.style.gridRow = String(r + 2);
+    grid.append(rh);
     for (let c = 0; c < t.cols; c++) {
+      if (isCovered(t, c, r)) continue; // hidden under a merge's anchor
       const a = addr(c, r);
       const cell = el("div", "cell");
       cell.dataset.addr = a;
       cell.dataset.tableId = t.id;
       cell.setAttribute("role", "gridcell");
+      const m = mergeAt(t, c, r); // here m, if present, is anchored at (c, r)
+      cell.style.gridColumn = `${c + 2}${m ? ` / span ${m.cw}` : ""}`;
+      cell.style.gridRow = `${r + 2}${m ? ` / span ${m.rh}` : ""}`;
+      if (m) cell.classList.add("merged");
       t.cellEls.set(a, cell);
       grid.append(cell);
       paint(t, a);
@@ -223,11 +297,26 @@ function el(tag, cls, text) {
   return n;
 }
 
+/** The address a coordinate resolves to for display/editing: a merge's anchor,
+ *  or the cell itself. */
+function resolvedAddr(t, c, r) {
+  const m = mergeAt(t, c, r);
+  return m ? addr(m.c, m.r) : addr(c, r);
+}
+
 function renderSelection() {
-  for (const c of document.querySelectorAll(".cell.selected")) c.classList.remove("selected");
+  for (const c of document.querySelectorAll(".cell.selected, .cell.in-range")) {
+    c.classList.remove("selected", "in-range");
+  }
   const t = selTable();
   if (!t) return;
-  const a = addr(selected.c, selected.r);
+  const [c0, r0, c1, r1] = normRange();
+  if (c0 !== c1 || r0 !== r1) {
+    for (let r = r0; r <= r1; r++) {
+      for (let c = c0; c <= c1; c++) t.cellEls.get(resolvedAddr(t, c, r))?.classList.add("in-range");
+    }
+  }
+  const a = resolvedAddr(t, selected.c, selected.r);
   t.cellEls.get(a)?.classList.add("selected");
   nameBox.value = `${t.name}.${a}`; // namespaced address, e.g. Table1.B3
   if (!editing) formulaInput.value = getRaw(t, a);
@@ -235,15 +324,33 @@ function renderSelection() {
 
 // ---- selection & navigation -------------------------------------------------
 
-function select(c, r, tableId = selected.tableId) {
+/** Move the focus cell to (c, r) in a table. With `extend`, keep the current
+ *  anchor (growing the selection); otherwise collapse the anchor onto the focus. */
+function select(c, r, tableId = selected.tableId, extend = false) {
+  const prevTable = selected.tableId;
   const t = tableById(tableId) ?? selTable();
   selected = {
     tableId: t.id,
     c: Math.max(0, Math.min(t.cols - 1, c)),
     r: Math.max(0, Math.min(t.rows - 1, r)),
   };
+  if (!extend || t.id !== prevTable) anchor = { c: selected.c, r: selected.r };
   renderSelection();
-  t.cellEls.get(addr(selected.c, selected.r))?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  t.cellEls.get(resolvedAddr(t, selected.c, selected.r))
+    ?.scrollIntoView({ block: "nearest", inline: "nearest" });
+}
+
+/** Arrow-key move that steps over merged regions so the focus never lands on a
+ *  hidden covered cell (it jumps past the merge in the travel direction). */
+function moveFocus(dc, dr, extend = false) {
+  const t = selTable();
+  let c = selected.c + dc, r = selected.r + dr;
+  const m = mergeAt(t, c, r);
+  if (m) {
+    if (dc > 0) c = m.c + m.cw; else if (dc < 0) c = m.c - 1;
+    if (dr > 0) r = m.r + m.rh; else if (dr < 0) r = m.r - 1;
+  }
+  select(c, r, selected.tableId, extend);
 }
 
 /** Resolve a `Table.A1` or bare `A1` reference and jump there, switching sheets
@@ -271,7 +378,7 @@ function jumpTo(text) {
 function beginEdit(initial) {
   editing = true;
   const t = selTable();
-  const a = addr(selected.c, selected.r);
+  const a = resolvedAddr(t, selected.c, selected.r);
   const cell = t.cellEls.get(a);
   cell.classList.add("editing");
   cell.contentEditable = "plaintext-only";
@@ -289,12 +396,12 @@ function beginEdit(initial) {
 function commitEdit(move) {
   if (!editing) return;
   const t = selTable();
-  const a = addr(selected.c, selected.r);
+  const a = resolvedAddr(t, selected.c, selected.r);
   const cell = t.cellEls.get(a);
   setRaw(t, a, cell.textContent.replace(/\n/g, "").trim());
   endEditDom(cell);
   paint(t, a);
-  if (move) select(selected.c + move.dc, selected.r + move.dr);
+  if (move) moveFocus(move.dc, move.dr);
   else renderSelection();
   focusSheet();
 }
@@ -302,7 +409,7 @@ function commitEdit(move) {
 function cancelEdit() {
   if (!editing) return;
   const t = selTable();
-  const a = addr(selected.c, selected.r);
+  const a = resolvedAddr(t, selected.c, selected.r);
   const cell = t.cellEls.get(a);
   endEditDom(cell);
   paint(t, a);
@@ -350,21 +457,36 @@ function beginRename(t, nameEl) {
 // ---- events -----------------------------------------------------------------
 
 sheetEl.addEventListener("mousedown", (e) => {
+  if (e.button !== 0) return; // left button selects; right button opens the menu
   const cell = e.target.closest(".cell");
   if (!cell) return;
   if (editing) commitEdit();
   const t = tableById(cell.dataset.tableId);
   const p = t && parseCellAddr(cell.dataset.addr, t);
-  if (p) select(p.c, p.r, t.id);
+  // Shift-click extends the selection (within the same table); plain click resets it.
+  if (p) select(p.c, p.r, t.id, e.shiftKey && t.id === selected.tableId);
 });
 
 sheetEl.addEventListener("dblclick", (e) => {
   if (e.target.closest(".cell")) beginEdit();
 });
 
-// Right-click the empty sheet to add a table (with a chosen size) there.
-// Right-clicking on an existing table is left alone.
+// Right-click a cell to merge/unmerge; right-click the empty sheet to add a
+// table (with a chosen size). Right-clicking a table's name header is left alone
+// (so it stays a plain drag handle).
 sheetEl.addEventListener("contextmenu", (e) => {
+  const cellEl = e.target.closest(".cell");
+  if (cellEl) {
+    e.preventDefault();
+    const t = tableById(cellEl.dataset.tableId);
+    const p = parseCellAddr(cellEl.dataset.addr, t);
+    // If the click is outside the current selection, collapse onto this cell.
+    const [c0, r0, c1, r1] = normRange();
+    const inRange = t.id === selected.tableId && p.c >= c0 && p.c <= c1 && p.r >= r0 && p.r <= r1;
+    if (!inRange) select(p.c, p.r, t.id);
+    openCellMenu(e.clientX, e.clientY, t, p);
+    return;
+  }
   if (e.target.closest(".table-card")) return;
   e.preventDefault();
   openTableMenu(e.clientX, e.clientY);
@@ -383,21 +505,17 @@ sheetEl.addEventListener("keydown", (e) => {
     return;
   }
   switch (e.key) {
-    case "ArrowUp": e.preventDefault(); select(selected.c, selected.r - 1); break;
-    case "ArrowDown": e.preventDefault(); select(selected.c, selected.r + 1); break;
-    case "ArrowLeft": e.preventDefault(); select(selected.c - 1, selected.r); break;
-    case "ArrowRight": e.preventDefault(); select(selected.c + 1, selected.r); break;
+    case "ArrowUp": e.preventDefault(); moveFocus(0, -1, e.shiftKey); break;
+    case "ArrowDown": e.preventDefault(); moveFocus(0, 1, e.shiftKey); break;
+    case "ArrowLeft": e.preventDefault(); moveFocus(-1, 0, e.shiftKey); break;
+    case "ArrowRight": e.preventDefault(); moveFocus(1, 0, e.shiftKey); break;
     case "Enter": e.preventDefault(); beginEdit(); break;
-    case "Tab": e.preventDefault(); select(selected.c + (e.shiftKey ? -1 : 1), selected.r); break;
+    case "Tab": e.preventDefault(); moveFocus(e.shiftKey ? -1 : 1, 0); break;
     case "F2": e.preventDefault(); beginEdit(); break;
     case "Backspace":
     case "Delete": {
       e.preventDefault();
-      const t = selTable();
-      const a = addr(selected.c, selected.r);
-      setRaw(t, a, "");
-      paint(t, a);
-      renderSelection();
+      clearSelection();
       break;
     }
     default:
@@ -421,15 +539,33 @@ formulaInput.addEventListener("keydown", (e) => {
   if (e.key === "Enter") {
     e.preventDefault();
     const t = selTable();
-    setRaw(t, addr(selected.c, selected.r), formulaInput.value.trim());
-    paint(t, addr(selected.c, selected.r));
-    select(selected.c, selected.r + 1);
+    const a = resolvedAddr(t, selected.c, selected.r);
+    setRaw(t, a, formulaInput.value.trim());
+    paint(t, a);
+    moveFocus(0, 1);
     focusSheet();
   } else if (e.key === "Escape") {
     renderSelection();
     focusSheet();
   }
 });
+
+/** Clear every cell in the current selection rectangle (resolving merges). */
+function clearSelection() {
+  const t = selTable();
+  const [c0, r0, c1, r1] = normRange();
+  const done = new Set();
+  for (let r = r0; r <= r1; r++) {
+    for (let c = c0; c <= c1; c++) {
+      const a = resolvedAddr(t, c, r);
+      if (done.has(a)) continue;
+      done.add(a);
+      setRaw(t, a, "");
+      paint(t, a);
+    }
+  }
+  renderSelection();
+}
 
 // ---- tables & sheet tabs ----------------------------------------------------
 
@@ -527,13 +663,7 @@ function openTableMenu(clientX, clientY) {
   });
   menu.append(create);
 
-  document.body.append(menu);
-  ctxMenu = menu;
-  // Keep the menu inside the viewport.
-  const lx = Math.max(8, Math.min(clientX, innerWidth - menu.offsetWidth - 8));
-  const ly = Math.max(8, Math.min(clientY, innerHeight - menu.offsetHeight - 8));
-  menu.style.left = `${lx}px`;
-  menu.style.top = `${ly}px`;
+  placeMenu(menu, clientX, clientY);
   colIn.focus();
   colIn.select();
 }
@@ -541,6 +671,54 @@ function openTableMenu(clientX, clientY) {
 function closeTableMenu() {
   ctxMenu?.remove();
   ctxMenu = null;
+}
+
+/** Place an already-populated menu near the cursor, kept inside the viewport. */
+function placeMenu(menu, clientX, clientY) {
+  document.body.append(menu);
+  ctxMenu = menu;
+  menu.style.left = `${Math.max(8, Math.min(clientX, innerWidth - menu.offsetWidth - 8))}px`;
+  menu.style.top = `${Math.max(8, Math.min(clientY, innerHeight - menu.offsetHeight - 8))}px`;
+}
+
+// ---- right-click cell menu (merge / unmerge) --------------------------------
+
+function openCellMenu(clientX, clientY, t, p) {
+  closeTableMenu();
+  const menu = el("div", "ctx-menu");
+
+  const [c0, r0, c1, r1] = normRange();
+  const rangeCells = t.id === selected.tableId ? (c1 - c0 + 1) * (r1 - r0 + 1) : 1;
+  const merge = mergeAt(t, p.c, p.r);
+
+  const item = (label, enabled, onClick) => {
+    const b = el("button", "ctx-item", label);
+    b.disabled = !enabled;
+    if (enabled) b.addEventListener("click", onClick);
+    menu.append(b);
+    return b;
+  };
+
+  item("Merge cells", rangeCells > 1, () => {
+    if (mergeRange(t, c0, r0, c1, r1)) {
+      renderSheet();
+      select(c0, r0, t.id); // selection collapses onto the new merged cell
+      focusSheet();
+    }
+    closeTableMenu();
+  });
+  item("Unmerge cells", merge != null, () => {
+    unmergeAt(t, p.c, p.r);
+    renderSheet();
+    select(p.c, p.r, t.id);
+    focusSheet();
+    closeTableMenu();
+  });
+
+  menu.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") { e.preventDefault(); closeTableMenu(); focusSheet(); }
+  });
+  placeMenu(menu, clientX, clientY);
 }
 
 function renderTabs() {
