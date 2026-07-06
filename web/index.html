@@ -20,13 +20,11 @@
     <input id="formula-input" class="formula-input" aria-label="Cell value" spellcheck="false" autocomplete="off">
   </div>
 
-  <!-- The sheet canvas; app.js lays out a forest of nested cells into #sheet. -->
+  <!-- The document is a forest of nested cells (five levels deep) laid out here
+       by app.js. There is no sheet: the board itself is the whole document. -->
   <main class="canvas">
-    <div id="sheet" class="sheet-canvas" role="group" aria-label="Sheet" tabindex="0"></div>
+    <div id="board" class="board" role="group" aria-label="Cells" tabindex="0"></div>
   </main>
-
-  <!-- Sheet tabs (bottom, Google Sheets style). -->
-  <nav class="sheet-tabs" id="sheet-tabs" aria-label="Sheets"></nav>
 
   <script type="module" src="./app.js"></script>
 </body>
