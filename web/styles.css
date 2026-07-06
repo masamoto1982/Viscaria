@@ -114,22 +114,27 @@
     background: var(--bg);
   }
 
-  /* A sheet holds several named table cards, stacked and left-aligned. */
+  /* A sheet is a positioning context; tables float on it at (left, top) and are
+     added by right-clicking (see .ctx-menu) and moved by dragging their name. */
   .sheet-canvas {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 1.4rem;
+    position: relative;
+    min-block-size: 100%;
     outline: none;
   }
 
   .table-card {
+    position: absolute;
     display: flex;
     flex-direction: column;
     gap: 0.4rem;
+
+    &.dragging {
+      cursor: grabbing;
+      box-shadow: 0 8px 24px oklch(0% 0 0 / 0.18);
+    }
   }
 
-  /* The table name is its namespace (Table1.B3) — a small editable label. */
+  /* The table name is its namespace (Table1.B3) — a draggable, editable label. */
   .table-name {
     align-self: flex-start;
     padding: 0.1rem 0.45rem;
@@ -138,23 +143,64 @@
     font-weight: 600;
     color: var(--muted);
     border-radius: 6px;
-    cursor: text;
+    cursor: grab;
+    user-select: none;
     outline: none;
 
     &:hover { background: var(--head-bg); color: var(--ink); }
-    &.editing { background: var(--surface); color: var(--ink); outline: 2px solid var(--accent); }
+    &.editing { background: var(--surface); color: var(--ink); outline: 2px solid var(--accent); cursor: text; }
   }
 
-  .add-table {
-    align-self: flex-start;
-    border: 1px dashed var(--line-strong);
-    background: transparent;
-    color: var(--muted);
-    padding: 0.35rem 0.85rem;
-    border-radius: 8px;
-    cursor: pointer;
+  .table-card.dragging .table-name { cursor: grabbing; }
 
-    &:hover { background: var(--head-bg); color: var(--ink); }
+  /* Right-click "new table" menu: choose column/row counts, then Create. */
+  .ctx-menu {
+    position: fixed;
+    z-index: 1000;
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+    min-inline-size: 12rem;
+    padding: 0.7rem;
+    background: var(--surface);
+    color: var(--ink);
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius);
+    box-shadow: 0 10px 30px oklch(0% 0 0 / 0.22);
+    font-size: 0.82rem;
+
+    & .ctx-title { font-weight: 650; }
+
+    & .ctx-field {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.6rem;
+      color: var(--muted);
+    }
+
+    & .ctx-field input {
+      inline-size: 4.5rem;
+      padding: 0.2rem 0.4rem;
+      border: 1px solid var(--line-strong);
+      border-radius: 6px;
+      background: var(--bg);
+      color: var(--ink);
+      text-align: end;
+    }
+
+    & .ctx-create {
+      margin-block-start: 0.1rem;
+      padding: 0.35rem 0.7rem;
+      border: 1px solid var(--accent);
+      border-radius: 7px;
+      background: var(--accent-soft);
+      color: var(--ink);
+      font-weight: 550;
+      cursor: pointer;
+
+      &:hover { background: var(--accent); color: var(--surface); }
+    }
   }
 
   .sheet-tabs {
