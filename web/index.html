@@ -6,11 +6,19 @@
   <title>Viscaria — Playground</title>
   <meta name="description" content="Viscaria — an AI-first, table-oriented, exact-real spreadsheet language. Playground.">
   <link rel="stylesheet" href="./styles.css">
+  <!-- KaTeX, vendored (Ajisai's math-view approach): no CDN, works offline. -->
+  <link rel="stylesheet" href="./vendor/katex/katex.min.css">
+  <script defer src="./vendor/katex/katex.min.js"></script>
 </head>
 <body>
   <header class="app-bar">
     <h1 class="brand">Viscaria</h1>
     <p class="tagline">table-oriented · exact-real spreadsheet</p>
+    <!-- Math view toggle (Ajisai's Stack-area checkbox, relocated to the app
+         bar since in Viscaria the cells themselves are the stack area).
+         Checked = KaTeX rendering of numeric values; unchecked = the
+         canonical fraction strings. -->
+    <label class="latex-toggle"><input type="checkbox" id="latex-toggle">LaTeX</label>
   </header>
 
   <!-- Formula bar: breadcrumb path box · fx · value field for the selected cell. -->

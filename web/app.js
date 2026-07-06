@@ -49,8 +49,154 @@ const PAD = 8; // margin kept around children when auto-placing / growing
 
 const snap = (v) => Math.max(0, Math.round(v / GRID) * GRID);
 
-const numberRe = /^-?(\d+(\.\d+)?|\d+\/\d+)$/;
-const kindOf = (raw) => (raw !== "" && numberRe.test(raw.trim()) ? "number" : "text");
+// ---- numbers: canonical fractions (Ajisai reuse) ------------------------------
+//
+// Every number normalizes to Ajisai's canonical fraction form on commit: a
+// reduced numerator/denominator pair with the denominator always written, so
+// `6/2` → `3/1`, `0.5` → `1/2`, `3` → `3/1`. The arithmetic is BigInt —
+// exact, never a float — matching the exact-real principle until the Rust
+// core takes over through WASM. Anything that doesn't parse as a number is
+// Text and stays as typed.
+
+const integerRe = /^-?\d+$/;
+const decimalRe = /^(-?)(\d+)\.(\d+)$/;
+const fractionRe = /^(-?\d+)\/(\d+)$/;
+
+const gcd = (a, b) => {
+  a = a < 0n ? -a : a;
+  while (b) [a, b] = [b, a % b];
+  return a;
+};
+
+/** The canonical `numerator/denominator` reading of raw text, or null when it
+ *  isn't a number (including a zero denominator — that's NIL territory for
+ *  the evaluator, not a canonical literal). */
+function normalizeNumeric(raw) {
+  raw = raw.trim();
+  let n, d;
+  if (integerRe.test(raw)) {
+    n = BigInt(raw);
+    d = 1n;
+  } else if (decimalRe.test(raw)) {
+    const [, sign, intPart, fracPart] = decimalRe.exec(raw);
+    d = 10n ** BigInt(fracPart.length);
+    n = BigInt(intPart) * d + BigInt(fracPart);
+    if (sign === "-") n = -n;
+  } else if (fractionRe.test(raw)) {
+    const [, num, den] = fractionRe.exec(raw);
+    n = BigInt(num);
+    d = BigInt(den);
+    if (d === 0n) return null;
+  } else {
+    return null;
+  }
+  if (n === 0n) return "0/1";
+  const g = gcd(n, d);
+  return `${n / g}/${d / g}`;
+}
+
+/** Normalize a committed value: numbers become canonical fractions, anything
+ *  else stays as typed. */
+const canonicalize = (raw) => normalizeNumeric(raw) ?? raw.trim();
+
+// A value is a number iff it IS a canonical fraction (committed values
+// normalize, so canonical values are fixed points; `1/0` normalizes to null
+// and therefore stays text).
+const kindOf = (raw) => (normalizeNumeric(raw) === raw.trim() ? "number" : "text");
+
+// ---- LaTeX view (Ajisai's value-latex.ts, ported) -----------------------------
+//
+// TeX is generated from the canonical numerator/denominator pair, never by
+// parsing arbitrary display text. `3/1` reads as the integer 3; a negative
+// sign stays outside the bar. Components at or past ten digits switch to an
+// exactly-computed scientific reading, prefixed \approx whenever any
+// precision is dropped — the math view never presents a truncated value as
+// exact. (Constants and logic follow Ajisai's src/gui/value-latex.ts.)
+
+const SCIENTIFIC_DIGIT_THRESHOLD = 10;
+const MANTISSA_DIGITS = 6;
+
+function scientificLatex(numerator, denominator) {
+  if (denominator < 0n) {
+    denominator = -denominator;
+    numerator = -numerator;
+  }
+  const negative = numerator < 0n;
+  if (negative) numerator = -numerator;
+  if (numerator === 0n) return "0";
+
+  const digitGap = String(numerator).length - String(denominator).length;
+  const scale = MANTISSA_DIGITS + 1 - digitGap;
+  const scaled = scale >= 0
+    ? (numerator * 10n ** BigInt(scale)) / denominator
+    : numerator / (denominator * 10n ** BigInt(-scale));
+  const dividesExactly = scale >= 0
+    ? (numerator * 10n ** BigInt(scale)) % denominator === 0n
+    : numerator % (denominator * 10n ** BigInt(-scale)) === 0n;
+
+  const digits = String(scaled);
+  const exponent = digits.length - 1 - scale;
+  const kept = digits.slice(0, MANTISSA_DIGITS);
+  const dropped = digits.slice(MANTISSA_DIGITS);
+  const exact = dividesExactly && /^0*$/.test(dropped);
+
+  let significand = kept;
+  let exponentOut = exponent;
+  if (!exact && dropped.length > 0 && dropped[0] >= "5") {
+    const rounded = String(BigInt(kept) + 1n);
+    if (rounded.length > kept.length) {
+      significand = "1";
+      exponentOut = exponent + 1;
+    } else {
+      significand = rounded;
+    }
+  }
+  significand = significand.replace(/0+$/, "") || "0";
+
+  const sign = negative ? "-" : "";
+  let body;
+  if (exponentOut >= 0 && exponentOut <= 5) {
+    const integerLength = exponentOut + 1;
+    const padded = significand.padEnd(integerLength, "0");
+    const integerPart = padded.slice(0, integerLength);
+    const fractionalPart = padded.slice(integerLength);
+    body = `${sign}${integerPart}${fractionalPart ? `.${fractionalPart}` : ""}`;
+  } else if (exponentOut < 0 && exponentOut >= -4) {
+    body = `${sign}0.${"0".repeat(-exponentOut - 1)}${significand}`;
+  } else {
+    const mantissa = significand.length > 1
+      ? `${significand[0]}.${significand.slice(1)}`
+      : significand;
+    body = mantissa === "1"
+      ? `${sign}10^{${exponentOut}}`
+      : `${sign}${mantissa} \\times 10^{${exponentOut}}`;
+  }
+  return exact ? body : `\\approx ${body}`;
+}
+
+/** The LaTeX reading of a canonical `n/d` value string, or null when the
+ *  value isn't numeric (text keeps its plain rendering). */
+function valueToLatex(raw) {
+  const m = fractionRe.exec(raw.trim());
+  if (!m) return null;
+  const [, num, den] = m;
+  if (num.replace("-", "").length >= SCIENTIFIC_DIGIT_THRESHOLD
+    || den.length >= SCIENTIFIC_DIGIT_THRESHOLD) {
+    return scientificLatex(BigInt(num), BigInt(den));
+  }
+  if (den === "1") return num;
+  const negative = num.startsWith("-");
+  const magnitude = negative ? num.slice(1) : num;
+  const body = `\\frac{${magnitude}}{${den}}`;
+  return negative ? `-${body}` : body;
+}
+
+// Opt-in, persisted — the canonical fraction strings stay the standard
+// rendering, so the observable surface never depends on KaTeX (Ajisai's
+// portability rule).
+const LATEX_VIEW_STORAGE_KEY = "viscaria-latex-view";
+let latexView = false;
+try { latexView = localStorage.getItem(LATEX_VIEW_STORAGE_KEY) === "1"; } catch { /* preference only */ }
 
 // ---- model ------------------------------------------------------------------
 //
@@ -199,6 +345,17 @@ function buildCell(cell, depth) {
   if (cell.children.length === 0) {
     const val = el("div", "cell-value", cell.value);
     val.dataset.kind = kindOf(cell.value);
+    // Math view: KaTeX rendering of the canonical fraction. Trusted markup —
+    // the TeX comes from valueToLatex over the canonical n/d form, never
+    // from arbitrary user text (text values keep their plain rendering).
+    if (latexView && typeof katex !== "undefined") {
+      const tex = valueToLatex(cell.value);
+      if (tex !== null) {
+        val.replaceChildren();
+        val.innerHTML = katex.renderToString(tex, { throwOnError: false });
+        val.classList.add("math");
+      }
+    }
     val.addEventListener("dblclick", (e) => {
       e.stopPropagation();
       select(cell.id);
@@ -300,7 +457,10 @@ function beginEdit(id, field, initial) {
   editing = { id, field };
   target.classList.add("editing");
   target.contentEditable = "plaintext-only";
-  if (initial != null) target.textContent = initial;
+  // Always (re)set the text from the model: in math view the element holds
+  // KaTeX markup, and editing must start from the canonical string.
+  target.textContent = initial != null ? initial : (ctx(id)?.cell[field] ?? "");
+  target.classList.remove("math");
   target.focus();
   const range = document.createRange();
   range.selectNodeContents(target);
@@ -316,7 +476,12 @@ function commitEdit() {
   const c = ctx(id);
   const target = editableEl(id, field);
   editing = null;
-  if (c && target) c.cell[field] = target.textContent.replace(/\n/g, "").trim();
+  if (c && target) {
+    const raw = target.textContent.replace(/\n/g, "").trim();
+    // Values normalize to the canonical fraction form (6/2 → 3/1); names
+    // are labels and stay as typed.
+    c.cell[field] = field === "value" ? canonicalize(raw) : raw;
+  }
   renderBoard();
   focusBoard();
 }
@@ -330,16 +495,18 @@ function cancelEdit() {
 
 // ---- structural edits ------------------------------------------------------------
 
-/** Add an empty child, placed to the right of its last sibling (or at the
- *  top-left corner if first). The parent grows to fit and shows its front so
- *  the new child is immediately visible. */
+/** Add an empty child, placed one grid unit in from the corner (or one grid
+ *  unit right of its last sibling) — on the grid, so flush edge-to-edge
+ *  contact between siblings stays on the same lattice as the background
+ *  grid. The parent grows to fit and shows its front so the new child is
+ *  immediately visible. */
 function addChild(id) {
   const c = ctx(id);
   if (!c || c.depth >= MAX_DEPTH) return;
   const last = c.cell.children[c.cell.children.length - 1];
   const child = makeCell();
-  child.x = last ? snap(last.x + last.w + PAD) : PAD;
-  child.y = last ? last.y : PAD;
+  child.x = last ? snap(last.x + last.w + GRID) : GRID;
+  child.y = last ? last.y : GRID;
   c.cell.children.push(child);
   growToFit(c.cell);
   c.cell.flipped = false;
@@ -452,6 +619,38 @@ function dropOriginRect(id) {
   return (area ?? box).getBoundingClientRect();
 }
 
+/** Grid-snap (x, y) inside `target`, then resolve contact against the other
+ *  children: merely coming near a sibling leaves the background grid in
+ *  charge, but pushing INTO one snaps the dragged cell flush against its
+ *  edge — cells kiss instead of overlapping, so shoving cells together
+ *  assembles a table. Resolution pushes out along the axis of least
+ *  penetration; a few passes settle corridor cases. Since sibling geometry
+ *  is itself grid-snapped, flush positions stay on the grid. */
+function resolveCellPlacement(target, dragged, x, y) {
+  x = snap(x);
+  y = snap(y);
+  const w = dragged.w, h = dragged.h;
+  for (let pass = 0; pass < 4; pass++) {
+    let pushed = false;
+    for (const sib of target.children) {
+      if (sib.id === dragged.id) continue;
+      const overlapX = Math.min(x + w, sib.x + sib.w) - Math.max(x, sib.x);
+      const overlapY = Math.min(y + h, sib.y + sib.h) - Math.max(y, sib.y);
+      if (overlapX <= 0 || overlapY <= 0) continue; // near ≠ touching: grid wins
+      if (overlapX <= overlapY) {
+        x = x + w / 2 < sib.x + sib.w / 2 ? sib.x - w : sib.x + sib.w;
+      } else {
+        y = y + h / 2 < sib.y + sib.h / 2 ? sib.y - h : sib.y + sib.h;
+      }
+      x = Math.max(0, x);
+      y = Math.max(0, y);
+      pushed = true;
+    }
+    if (!pushed) break;
+  }
+  return { x: Math.max(0, x), y: Math.max(0, y) };
+}
+
 function clearDropHighlight() {
   for (const b of boardEl.querySelectorAll(".drop-target")) b.classList.remove("drop-target");
   boardEl.classList.remove("drop-target");
@@ -492,16 +691,19 @@ function attachDrag(box, cell) {
       const cand = dropCandidateAt(ev.clientX, ev.clientY);
       const valid = dropIsValid(cand, cell, cell.id);
       highlightDropTarget(valid ? cand : null);
-      // Over a valid cell the ghost sticks to that cell's grid — the drag
-      // itself snaps, not just the release. Over the board (promotion to 親,
-      // which flows rather than being positioned) it follows the pointer.
+      // Over a valid cell the ghost sticks to that cell's grid and kisses
+      // sibling edges on contact — the drag itself snaps, not just the
+      // release. Over the board (promotion to 親, which flows rather than
+      // being positioned) it follows the pointer.
       let left = ev.clientX - grabDX;
       let top = ev.clientY - grabDY;
       if (valid && cand.kind === "cell") {
         const origin = dropOriginRect(cand.id);
-        if (origin) {
-          left = origin.left + Math.max(0, snap(left - origin.left));
-          top = origin.top + Math.max(0, snap(top - origin.top));
+        const target = ctx(cand.id)?.cell;
+        if (origin && target) {
+          const p = resolveCellPlacement(target, cell, left - origin.left, top - origin.top);
+          left = origin.left + p.x;
+          top = origin.top + p.y;
         }
       }
       box.style.left = `${left}px`;
@@ -532,13 +734,19 @@ function finishDrag(clientX, clientY, draggedId, grabDX, grabDY) {
       return;
     }
     const t = ctx(cand.id);
-    // Landing position: the same grid-snapped origin the mid-drag ghost used,
-    // so the cell lands exactly where the drag showed it.
+    // Landing position: the same origin, grid snap, and edge-contact
+    // resolution the mid-drag ghost used, so the cell lands exactly where
+    // the drag showed it.
     const originRect = dropOriginRect(cand.id);
     const moved = detach(draggedId);
     if (originRect) {
-      moved.x = Math.max(0, snap(clientX - grabDX - originRect.left));
-      moved.y = Math.max(0, snap(clientY - grabDY - originRect.top));
+      const p = resolveCellPlacement(
+        t.cell, moved,
+        clientX - grabDX - originRect.left,
+        clientY - grabDY - originRect.top,
+      );
+      moved.x = p.x;
+      moved.y = p.y;
     }
     t.cell.children.push(moved);
     growToFit(t.cell);
@@ -611,13 +819,24 @@ formulaInput.addEventListener("keydown", (e) => {
   if (e.key === "Enter") {
     e.preventDefault();
     const c = ctx(selectedId);
-    if (c) c.cell.value = formulaInput.value.trim();
+    if (c) c.cell.value = canonicalize(formulaInput.value);
     renderBoard();
     focusBoard();
   } else if (e.key === "Escape") {
     renderSelection();
     focusBoard();
   }
+});
+
+// ---- math view toggle ----------------------------------------------------------
+
+const latexToggleEl = document.getElementById("latex-toggle");
+latexToggleEl.checked = latexView;
+latexToggleEl.addEventListener("change", () => {
+  latexView = latexToggleEl.checked;
+  try { localStorage.setItem(LATEX_VIEW_STORAGE_KEY, latexView ? "1" : "0"); } catch { /* preference only */ }
+  if (editing) commitEdit();
+  renderBoard();
 });
 
 // ---- board context menu ("add a 親 cell") ---------------------------------------------
