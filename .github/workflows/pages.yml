@@ -10,6 +10,7 @@ permissions:
   contents: read
   pages: write
   id-token: write
+  actions: write   # delete stale artifacts left by a failed earlier attempt
 
 # One deploy at a time; let an in-flight run finish.
 concurrency:
@@ -30,6 +31,24 @@ jobs:
       # Node 24 and no longer duplicate within an attempt.
       - uses: actions/checkout@v5
       - uses: actions/configure-pages@v6
+      # If an earlier attempt of THIS run uploaded a `github-pages` artifact and
+      # then failed (e.g. a transient Pages/Actions API hiccup), re-running the
+      # job adds a *second* artifact to the same run — and deploy-pages aborts
+      # with "Multiple artifacts named github-pages … Artifact count is 2",
+      # because it resolves the artifact by name and can't disambiguate. Delete
+      # any such leftovers so upload below produces exactly one, making re-runs
+      # idempotent. (deploy-pages can't yet target an artifact_id: actions/deploy-pages#338.)
+      - name: Remove stale github-pages artifacts from earlier attempts
+        if: github.run_attempt > 1
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts" \
+            --jq '.artifacts[] | select(.name == "github-pages") | .id' |
+          while read -r id; do
+            echo "Deleting stale artifact $id"
+            gh api -X DELETE "repos/${{ github.repository }}/actions/artifacts/$id"
+          done
       # The playground is a static, build-free site: upload web/ as-is.
       - uses: actions/upload-pages-artifact@v5
         with:
