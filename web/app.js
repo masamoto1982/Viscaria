@@ -441,6 +441,17 @@ function dropIsValid(cand, dragged, draggedId) {
   return t != null && !isSelfOrAncestor(draggedId, cand.id) && fitsAt(dragged, t.depth + 1);
 }
 
+/** Where a drop into cell `id` measures from: its children canvas when it has
+ *  one, otherwise the cell's own box (a leaf about to become a parent). Both
+ *  the mid-drag ghost and the final landing use this same origin, so the
+ *  position seen during the drag is exactly where the cell lands. */
+function dropOriginRect(id) {
+  const box = boxOf(id);
+  if (!box) return null;
+  const area = box.querySelector(":scope > .card > .face.front > .cell-children");
+  return (area ?? box).getBoundingClientRect();
+}
+
 function clearDropHighlight() {
   for (const b of boardEl.querySelectorAll(".drop-target")) b.classList.remove("drop-target");
   boardEl.classList.remove("drop-target");
@@ -478,10 +489,23 @@ function attachDrag(box, cell) {
         box.style.pointerEvents = "none"; // elementFromPoint must see beneath it
         box.setPointerCapture(e.pointerId);
       }
-      box.style.left = `${ev.clientX - grabDX}px`;
-      box.style.top = `${ev.clientY - grabDY}px`;
       const cand = dropCandidateAt(ev.clientX, ev.clientY);
-      highlightDropTarget(dropIsValid(cand, cell, cell.id) ? cand : null);
+      const valid = dropIsValid(cand, cell, cell.id);
+      highlightDropTarget(valid ? cand : null);
+      // Over a valid cell the ghost sticks to that cell's grid — the drag
+      // itself snaps, not just the release. Over the board (promotion to 親,
+      // which flows rather than being positioned) it follows the pointer.
+      let left = ev.clientX - grabDX;
+      let top = ev.clientY - grabDY;
+      if (valid && cand.kind === "cell") {
+        const origin = dropOriginRect(cand.id);
+        if (origin) {
+          left = origin.left + Math.max(0, snap(left - origin.left));
+          top = origin.top + Math.max(0, snap(top - origin.top));
+        }
+      }
+      box.style.left = `${left}px`;
+      box.style.top = `${top}px`;
     };
     const onUp = (ev) => {
       box.removeEventListener("pointermove", onMove);
@@ -508,10 +532,9 @@ function finishDrag(clientX, clientY, draggedId, grabDX, grabDY) {
       return;
     }
     const t = ctx(cand.id);
-    // Landing position: grid-snapped within the target's front face. A leaf
-    // target has no children canvas yet, so fall back to its own box origin.
-    const area = boxOf(cand.id)?.querySelector(":scope > .card > .face.front > .cell-children");
-    const originRect = (area ?? boxOf(cand.id))?.getBoundingClientRect();
+    // Landing position: the same grid-snapped origin the mid-drag ghost used,
+    // so the cell lands exactly where the drag showed it.
+    const originRect = dropOriginRect(cand.id);
     const moved = detach(draggedId);
     if (originRect) {
       moved.x = Math.max(0, snap(clientX - grabDX - originRect.left));
