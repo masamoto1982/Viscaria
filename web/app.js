@@ -1,184 +1,95 @@
-// Viscaria playground — grid shell with multiple named tables per sheet.
+// Viscaria playground — nested-cell shell (five-level cell hierarchy).
 //
-// Scope of this slice: a Numbers/Sheets-style square-cell grid with selection,
-// in-cell and formula-bar editing, keyboard navigation, and multiple sheets —
-// where each sheet now holds *several* named tables rather than one grid. A
-// table's name is its namespace (design note docs/dev/ajisai-cell-addressing.md
-// §3, §7): tables are auto-named (`Table1`, `Table2`, …), document-unique, and
-// renamable, and a cell is addressed `Table.A1`. The name box resolves that
-// namespaced form to jump across tables (and sheets).
+// Basic-design change: a sheet no longer holds several named *tables*. Instead
+// it holds a forest of nested *cells*. A parent cell (階層1) can hold several
+// child cells (子, 階層2); a child can hold grandchildren (孫, 階層3); a
+// grandchild can hold great-grandchildren (ひ孫, 階層4); a great-grandchild can
+// hold great-great-grandchildren (玄孫, 階層5). Five levels total, so a
+// great-great-grandchild is always a leaf.
 //
-// Tables float freely on the sheet: right-click the sheet to open a menu that
-// asks for the column and row counts and drops a new table where you clicked,
-// and drag a table by its name header to reposition it anywhere. Cells hold
-// literal values (numbers / text); numbers right-align. Formula evaluation
-// (`=Table.A1+B1`) with EXACT continued-fraction arithmetic is the next slice,
-// wired through the Rust core compiled to WASM — deliberately not faked in JS
-// floats here, because exactness is the whole point.
+// Every cell except a parent (階層1) can be moved by drag & drop in the normal
+// state: drop a cell onto another cell to make it that cell's child (move),
+// respecting the five-level cap; drop it onto the empty canvas to promote it to
+// a parent. Double-click a cell to rewrite its value.
+//
+// The Ajisai model is kept: everything is internally an exact real (a continued
+// fraction, handled by the Rust core; wired through WASM in a later slice), and
+// the human-facing surface — the cell's raw text — is separated from that
+// internal representation. In Viscaria the cell itself plays the role that the
+// Input area, the stack area, and the Output area play in classic Ajisai. The
+// raw text here is deliberately *not* evaluated in JS floats, because exactness
+// is the whole point.
 
-const DEFAULT_COLS = 5;
-const DEFAULT_ROWS = 8;
-const MAX_COLS = 50;
-const MAX_ROWS = 200;
-
-/** Clamp a menu input to an integer in [lo, hi], falling back to `dflt`. */
-function clampInt(v, lo, hi, dflt) {
-  const n = Math.floor(Number(v));
-  return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : dflt;
-}
-
-// ---- address helpers --------------------------------------------------------
-
-/** 0-based column index → letters (0→A, 25→Z, 26→AA). */
-function colLabel(i) {
-  let s = "";
-  for (i += 1; i > 0; i = Math.floor((i - 1) / 26)) {
-    s = String.fromCharCode(65 + ((i - 1) % 26)) + s;
-  }
-  return s;
-}
-const addr = (c, r) => `${colLabel(c)}${r + 1}`;
-
-/** "B3" → {c, r} (0-based) within a table's bounds, or null. */
-function parseCellAddr(text, t) {
-  const m = /^([A-Za-z]+)(\d+)$/.exec(text.trim());
-  if (!m) return null;
-  let c = 0;
-  for (const ch of m[1].toUpperCase()) c = c * 26 + (ch.charCodeAt(0) - 64);
-  const r = parseInt(m[2], 10) - 1;
-  c -= 1;
-  if (c < 0 || c >= t.cols || r < 0 || r >= t.rows) return null;
-  return { c, r };
-}
+const MAX_DEPTH = 5;
+// Level labels (階層1..5), for the name box breadcrumb and menus.
+const LEVEL_JA = ["", "親", "子", "孫", "ひ孫", "玄孫"];
 
 const numberRe = /^-?(\d+(\.\d+)?|\d+\/\d+)$/;
 const kindOf = (raw) => (raw !== "" && numberRe.test(raw.trim()) ? "number" : "text");
 
 // ---- model ------------------------------------------------------------------
 //
-// doc → sheets → tables → cells. A table owns its own grid dimensions, its
-// free-floating position (x, y) on the sheet, a stacking order (z), a sparse
-// map of address → raw text, and a list of merged regions. Table names are
-// document-unique namespaces; `cellEls` is transient render state (rebuilt each
-// render), not part of the document.
-//
-// A merged region `{ c, r, cw, rh }` is one cell (its anchor is the top-left
-// (c, r)) occupying a cw×rh rectangle; the covered addresses have no identity of
-// their own and resolve to the anchor (design note §3.3).
+// doc → sheets → roots (a forest of cells). A cell owns a raw value (its
+// human-facing surface, separate from the internal exact-real representation)
+// and an ordered list of child cells. Depth is positional (a cell's level is
+// how deep it sits in the forest, 1..5), so it is not stored on the cell.
 
 let idSeq = 0;
-let zTop = 0; // most-recently-touched table floats above the rest
-const makeTable = (name, cols = DEFAULT_COLS, rows = DEFAULT_ROWS, x = 24, y = 24) => ({
-  id: `t${++idSeq}`,
-  name,
-  cols,
-  rows,
-  x,
-  y,
-  z: ++zTop,
-  cells: new Map(),
-  merges: [],
-  cellEls: new Map(),
-});
-
-// ---- merged regions ---------------------------------------------------------
-
-/** The merge region covering cell (c, r), or null. */
-function mergeAt(t, c, r) {
-  for (const m of t.merges) {
-    if (c >= m.c && c < m.c + m.cw && r >= m.r && r < m.r + m.rh) return m;
-  }
-  return null;
-}
-
-/** True if (c, r) is inside a merge but is not its anchor (i.e. hidden). */
-function isCovered(t, c, r) {
-  const m = mergeAt(t, c, r);
-  return m != null && !(m.c === c && m.r === r);
-}
-
-/** Merge the normalized rectangle into one cell. Absorbs any intersecting
- *  merges and drops the covered cells' contents (the anchor's value survives).
- *  Returns false for a single-cell rectangle (nothing to merge). */
-function mergeRange(t, c0, r0, c1, r1) {
-  const cc0 = Math.min(c0, c1), rr0 = Math.min(r0, r1);
-  const cc1 = Math.max(c0, c1), rr1 = Math.max(r0, r1);
-  if (cc0 === cc1 && rr0 === rr1) return false;
-  t.merges = t.merges.filter(
-    (m) => !(m.c <= cc1 && m.c + m.cw - 1 >= cc0 && m.r <= rr1 && m.r + m.rh - 1 >= rr0),
-  );
-  for (let r = rr0; r <= rr1; r++) {
-    for (let c = cc0; c <= cc1; c++) {
-      if (!(c === cc0 && r === rr0)) t.cells.delete(addr(c, r));
-    }
-  }
-  t.merges.push({ c: cc0, r: rr0, cw: cc1 - cc0 + 1, rh: rr1 - rr0 + 1 });
-  return true;
-}
-
-/** Remove the merge covering (c, r), if any. Returns whether one was removed. */
-function unmergeAt(t, c, r) {
-  const m = mergeAt(t, c, r);
-  if (!m) return false;
-  t.merges = t.merges.filter((x) => x !== m);
-  return true;
-}
+const makeCell = (value = "") => ({ id: `c${++idSeq}`, value, children: [] });
 
 const doc = { sheets: [], active: 0 };
 
-/** Lowest free `TableN` across the whole document (names are document-unique). */
-function autoTableName() {
-  const used = new Set();
-  for (const s of doc.sheets) for (const t of s.tables) used.add(t.name);
-  let n = 1;
-  while (used.has(`Table${n}`)) n++;
-  return `Table${n}`;
-}
-
 function newSheet() {
-  const s = { name: `Sheet${doc.sheets.length + 1}`, tables: [] };
+  const s = { name: `Sheet${doc.sheets.length + 1}`, roots: [] };
   doc.sheets.push(s);
-  s.tables.push(makeTable(autoTableName()));
+  s.roots.push(makeCell()); // seed each sheet with one empty parent cell
   return s;
 }
 
 const activeSheet = () => doc.sheets[doc.active];
 
-function tableById(id) {
-  for (const s of doc.sheets) for (const t of s.tables) if (t.id === id) return t;
-  return null;
+// ---- tree index (rebuilt each render) ---------------------------------------
+//
+// Maps a cell id to its structural context: the cell, its parent (null for a
+// root/parent cell), the sibling list it lives in, its 0-based position there,
+// its depth (1..5), and its 1-based path from the root (for the name box).
+
+let index = new Map();
+
+function reindex() {
+  index = new Map();
+  const walk = (cell, parent, siblings, pos, depth, path) => {
+    index.set(cell.id, { cell, parent, siblings, pos, depth, path });
+    cell.children.forEach((ch, i) => walk(ch, cell, cell.children, i, depth + 1, [...path, i + 1]));
+  };
+  activeSheet().roots.forEach((c, i) => walk(c, null, activeSheet().roots, i, 1, [i + 1]));
 }
 
-/** Resolve a table by its namespace name anywhere in the document. */
-function tableByName(name) {
-  const key = name.trim().toLowerCase();
-  for (const s of doc.sheets) for (const t of s.tables) {
-    if (t.name.toLowerCase() === key) return t;
+const ctx = (id) => index.get(id) ?? null;
+
+/** The height (number of levels) of the subtree rooted at `cell` — 1 for a leaf. */
+function subtreeHeight(cell) {
+  if (!cell.children.length) return 1;
+  return 1 + Math.max(...cell.children.map(subtreeHeight));
+}
+
+/** True iff `maybeAncestorId` is `cellId` or an ancestor of it (so we never drop
+ *  a cell into its own subtree). */
+function isSelfOrAncestor(maybeAncestorId, cellId) {
+  let cur = ctx(cellId);
+  while (cur) {
+    if (cur.cell.id === maybeAncestorId) return true;
+    cur = cur.parent ? ctx(cur.parent.id) : null;
   }
-  return null;
+  return false;
 }
 
-function sheetIndexOfTable(t) {
-  return doc.sheets.findIndex((s) => s.tables.includes(t));
-}
-
-const selTable = () => tableById(selected.tableId);
-const getRaw = (t, a) => t.cells.get(a) ?? "";
-function setRaw(t, a, raw) {
-  if (raw === "") t.cells.delete(a);
-  else t.cells.set(a, raw);
-}
-
-/** Rename a table. Returns false (leaving the name unchanged) if invalid or
- *  colliding — table names are document-unique namespaces and must not contain
- *  whitespace or the `.` namespace separator. */
-function renameTable(t, name) {
-  name = name.trim();
-  if (name === t.name) return true;
-  if (name === "" || /[\s.]/.test(name)) return false;
-  if (tableByName(name)) return false; // collision (case-insensitive)
-  t.name = name;
-  return true;
+/** Detach a cell from its current siblings and return it. */
+function detach(id) {
+  const c = ctx(id);
+  if (!c) return null;
+  c.siblings.splice(c.pos, 1);
+  return c.cell;
 }
 
 newSheet();
@@ -190,93 +101,12 @@ const nameBox = document.getElementById("name-box");
 const formulaInput = document.getElementById("formula-input");
 const tabsEl = document.getElementById("sheet-tabs");
 
-let selected = { tableId: activeSheet().tables[0].id, c: 0, r: 0 };
-let anchor = { c: 0, r: 0 }; // other corner of the multi-cell selection
+let selectedId = activeSheet().roots[0].id;
 let editing = false;
 
 const focusSheet = () => sheetEl.focus();
 
-/** The current selection rectangle [c0, r0, c1, r1] (anchor ↔ focus), normalized. */
-function normRange() {
-  return [
-    Math.min(anchor.c, selected.c), Math.min(anchor.r, selected.r),
-    Math.max(anchor.c, selected.c), Math.max(anchor.r, selected.r),
-  ];
-}
-
 // ---- rendering --------------------------------------------------------------
-
-function renderSheet() {
-  sheetEl.replaceChildren();
-  for (const t of activeSheet().tables) sheetEl.append(buildTableCard(t));
-  fitCanvas();
-}
-
-/** Grow the sheet so every floating table (and some slack) stays scrollable. */
-function fitCanvas() {
-  let w = 0, h = 0;
-  for (const card of sheetEl.querySelectorAll(".table-card")) {
-    w = Math.max(w, card.offsetLeft + card.offsetWidth);
-    h = Math.max(h, card.offsetTop + card.offsetHeight);
-  }
-  sheetEl.style.minWidth = `${w + 40}px`;
-  sheetEl.style.minHeight = `${h + 40}px`;
-}
-
-function buildTableCard(t) {
-  const card = el("div", "table-card");
-  card.dataset.tableId = t.id;
-  card.style.left = `${t.x}px`;
-  card.style.top = `${t.y}px`;
-  card.style.zIndex = String(t.z);
-
-  const name = el("div", "table-name", t.name);
-  name.title = "Drag to move · double-click to rename (name is its namespace)";
-  name.addEventListener("dblclick", () => beginRename(t, name));
-  name.addEventListener("pointerdown", (e) => startDrag(t, card, e));
-  card.append(name);
-
-  const grid = el("section", "grid");
-  grid.setAttribute("role", "grid");
-  grid.setAttribute("aria-label", `Table ${t.name}`);
-  grid.dataset.tableId = t.id;
-  grid.style.setProperty("--cols", t.cols);
-  grid.style.setProperty("--rows", t.rows);
-
-  // No row/column header bands: the table name is the namespace and every cell
-  // still has an address (A1, B3, …) shown in the name box, so cells stay
-  // specifiable without visible labels. Cells sit on explicit grid lines so
-  // skipping a merge's covered cells never shifts the layout.
-  t.cellEls.clear();
-  for (let r = 0; r < t.rows; r++) {
-    for (let c = 0; c < t.cols; c++) {
-      if (isCovered(t, c, r)) continue; // hidden under a merge's anchor
-      const a = addr(c, r);
-      const cell = el("div", "cell");
-      cell.dataset.addr = a;
-      cell.dataset.tableId = t.id;
-      cell.setAttribute("role", "gridcell");
-      const m = mergeAt(t, c, r); // here m, if present, is anchored at (c, r)
-      cell.style.gridColumn = `${c + 1}${m ? ` / span ${m.cw}` : ""}`;
-      cell.style.gridRow = `${r + 1}${m ? ` / span ${m.rh}` : ""}`;
-      if (m) cell.classList.add("merged");
-      t.cellEls.set(a, cell);
-      grid.append(cell);
-      paint(t, a);
-    }
-  }
-
-  card.append(grid);
-  return card;
-}
-
-function paint(t, a) {
-  const cell = t.cellEls.get(a);
-  if (!cell) return;
-  const raw = getRaw(t, a);
-  cell.textContent = raw;
-  cell.dataset.kind = kindOf(raw);
-}
 
 function el(tag, cls, text) {
   const n = document.createElement(tag);
@@ -285,229 +115,273 @@ function el(tag, cls, text) {
   return n;
 }
 
-/** The address a coordinate resolves to for display/editing: a merge's anchor,
- *  or the cell itself. */
-function resolvedAddr(t, c, r) {
-  const m = mergeAt(t, c, r);
-  return m ? addr(m.c, m.r) : addr(c, r);
+function renderSheet() {
+  reindex();
+  // Keep the selection valid across structural edits (deletions, sheet switch).
+  if (!index.has(selectedId)) {
+    selectedId = activeSheet().roots[0]?.id ?? null;
+  }
+  sheetEl.replaceChildren();
+  for (const root of activeSheet().roots) sheetEl.append(buildCell(root, 1));
+  renderSelection();
 }
 
+function buildCell(cell, depth) {
+  const box = el("div", "cell-box");
+  box.dataset.id = cell.id;
+  box.dataset.depth = String(depth);
+  if (depth > 1) box.draggable = true; // every cell but a parent can be moved
+
+  const val = el("div", "cell-value", cell.value);
+  val.dataset.kind = kindOf(cell.value);
+  if (cell.value === "") val.classList.add("blank");
+  box.append(val);
+
+  if (cell.children.length) {
+    const kids = el("div", "cell-children");
+    for (const ch of cell.children) kids.append(buildCell(ch, depth + 1));
+    box.append(kids);
+  }
+  return box;
+}
+
+const boxOf = (id) => sheetEl.querySelector(`.cell-box[data-id="${id}"]`);
+
 function renderSelection() {
-  for (const c of document.querySelectorAll(".cell.selected, .cell.in-range")) {
-    c.classList.remove("selected", "in-range");
+  for (const b of sheetEl.querySelectorAll(".cell-box.selected")) b.classList.remove("selected");
+  const c = ctx(selectedId);
+  if (!c) {
+    nameBox.value = "";
+    if (!editing) formulaInput.value = "";
+    return;
   }
-  const t = selTable();
-  if (!t) return;
-  const [c0, r0, c1, r1] = normRange();
-  if (c0 !== c1 || r0 !== r1) {
-    for (let r = r0; r <= r1; r++) {
-      for (let c = c0; c <= c1; c++) t.cellEls.get(resolvedAddr(t, c, r))?.classList.add("in-range");
-    }
-  }
-  const a = resolvedAddr(t, selected.c, selected.r);
-  t.cellEls.get(a)?.classList.add("selected");
-  nameBox.value = `${t.name}.${a}`; // namespaced address, e.g. Table1.B3
-  if (!editing) formulaInput.value = getRaw(t, a);
+  boxOf(selectedId)?.classList.add("selected");
+  // Breadcrumb: 親1 › 子2 › 孫1 … (level label + 1-based position per depth).
+  nameBox.value = c.path.map((n, i) => `${LEVEL_JA[i + 1] ?? "?"}${n}`).join(" › ");
+  if (!editing) formulaInput.value = c.cell.value;
 }
 
 // ---- selection & navigation -------------------------------------------------
 
-/** Move the focus cell to (c, r) in a table. With `extend`, keep the current
- *  anchor (growing the selection); otherwise collapse the anchor onto the focus. */
-function select(c, r, tableId = selected.tableId, extend = false) {
-  const prevTable = selected.tableId;
-  const t = tableById(tableId) ?? selTable();
-  selected = {
-    tableId: t.id,
-    c: Math.max(0, Math.min(t.cols - 1, c)),
-    r: Math.max(0, Math.min(t.rows - 1, r)),
-  };
-  if (!extend || t.id !== prevTable) anchor = { c: selected.c, r: selected.r };
+function select(id) {
+  if (!ctx(id)) return;
+  selectedId = id;
   renderSelection();
-  t.cellEls.get(resolvedAddr(t, selected.c, selected.r))
-    ?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  boxOf(id)?.scrollIntoView({ block: "nearest", inline: "nearest" });
 }
 
-/** Arrow-key move that steps over merged regions so the focus never lands on a
- *  hidden covered cell (it jumps past the merge in the travel direction). */
-function moveFocus(dc, dr, extend = false) {
-  const t = selTable();
-  let c = selected.c + dc, r = selected.r + dr;
-  const m = mergeAt(t, c, r);
-  if (m) {
-    if (dc > 0) c = m.c + m.cw; else if (dc < 0) c = m.c - 1;
-    if (dr > 0) r = m.r + m.rh; else if (dr < 0) r = m.r - 1;
+/** Tree navigation: up/down = previous/next sibling, right = first child,
+ *  left = parent. */
+function moveSelection(key) {
+  const c = ctx(selectedId);
+  if (!c) return;
+  switch (key) {
+    case "ArrowUp": if (c.pos > 0) select(c.siblings[c.pos - 1].id); break;
+    case "ArrowDown": if (c.pos < c.siblings.length - 1) select(c.siblings[c.pos + 1].id); break;
+    case "ArrowRight": if (c.cell.children.length) select(c.cell.children[0].id); break;
+    case "ArrowLeft": if (c.parent) select(c.parent.id); break;
   }
-  select(c, r, selected.tableId, extend);
-}
-
-/** Resolve a `Table.A1` or bare `A1` reference and jump there, switching sheets
- *  if the named table lives on another one. Returns whether it resolved. */
-function jumpTo(text) {
-  text = text.trim();
-  const dot = text.lastIndexOf(".");
-  let t = selTable();
-  let addrText = text;
-  if (dot >= 0) {
-    t = tableByName(text.slice(0, dot));
-    addrText = text.slice(dot + 1);
-    if (!t) return false;
-    const si = sheetIndexOfTable(t);
-    if (si !== doc.active) switchSheet(si);
-  }
-  const p = parseCellAddr(addrText, t);
-  if (!p) return false;
-  select(p.c, p.r, t.id);
-  return true;
 }
 
 // ---- editing ----------------------------------------------------------------
 
 function beginEdit(initial) {
+  const c = ctx(selectedId);
+  if (!c) return;
   editing = true;
-  const t = selTable();
-  const a = resolvedAddr(t, selected.c, selected.r);
-  const cell = t.cellEls.get(a);
-  cell.classList.add("editing");
-  cell.contentEditable = "plaintext-only";
-  cell.textContent = initial != null ? initial : getRaw(t, a);
-  cell.focus();
-  // caret to end
+  const val = boxOf(selectedId)?.querySelector(".cell-value");
+  if (!val) { editing = false; return; }
+  val.classList.remove("blank");
+  val.contentEditable = "plaintext-only";
+  val.classList.add("editing");
+  val.textContent = initial != null ? initial : c.cell.value;
+  val.focus();
   const sel = getSelection();
   sel.removeAllRanges();
   const range = document.createRange();
-  range.selectNodeContents(cell);
+  range.selectNodeContents(val);
   range.collapse(false);
   sel.addRange(range);
 }
 
-function commitEdit(move) {
+function commitEdit() {
   if (!editing) return;
-  const t = selTable();
-  const a = resolvedAddr(t, selected.c, selected.r);
-  const cell = t.cellEls.get(a);
-  setRaw(t, a, cell.textContent.replace(/\n/g, "").trim());
-  endEditDom(cell);
-  paint(t, a);
-  if (move) moveFocus(move.dc, move.dr);
-  else renderSelection();
+  const c = ctx(selectedId);
+  const val = boxOf(selectedId)?.querySelector(".cell-value");
+  editing = false;
+  if (c && val) c.cell.value = val.textContent.replace(/\n/g, "").trim();
+  renderSheet();
   focusSheet();
 }
 
 function cancelEdit() {
   if (!editing) return;
-  const t = selTable();
-  const a = resolvedAddr(t, selected.c, selected.r);
-  const cell = t.cellEls.get(a);
-  endEditDom(cell);
-  paint(t, a);
-  renderSelection();
+  editing = false;
+  renderSheet();
   focusSheet();
 }
 
-function endEditDom(cell) {
-  editing = false;
-  cell.contentEditable = "false";
-  cell.classList.remove("editing");
+// ---- structural edits -------------------------------------------------------
+
+/** Add an empty child under a cell, if it is not already at the deepest level. */
+function addChild(id) {
+  const c = ctx(id);
+  if (!c || c.depth >= MAX_DEPTH) return;
+  const child = makeCell();
+  c.cell.children.push(child);
+  renderSheet();
+  select(child.id);
 }
 
-// ---- table renaming ---------------------------------------------------------
-
-function beginRename(t, nameEl) {
-  let done = false;
-  nameEl.contentEditable = "plaintext-only";
-  nameEl.classList.add("editing");
-  nameEl.focus();
-  const sel = getSelection();
-  sel.removeAllRanges();
-  const range = document.createRange();
-  range.selectNodeContents(nameEl);
-  sel.addRange(range);
-
-  const finish = (commit) => {
-    if (done) return;
-    done = true;
-    nameEl.contentEditable = "false";
-    nameEl.classList.remove("editing");
-    if (commit) renameTable(t, nameEl.textContent.replace(/\n/g, ""));
-    nameEl.textContent = t.name; // reflect the accepted name (reverts if rejected)
-    renderSelection(); // name box may show this table's namespace
-    focusSheet();
-  };
-
-  nameEl.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") { e.preventDefault(); finish(true); }
-    else if (e.key === "Escape") { e.preventDefault(); finish(false); }
-  });
-  nameEl.addEventListener("blur", () => finish(true), { once: true });
+/** Add a new empty parent cell (階層1) to the active sheet. */
+function addParent() {
+  const p = makeCell();
+  activeSheet().roots.push(p);
+  renderSheet();
+  select(p.id);
 }
 
-// ---- events -----------------------------------------------------------------
+/** Remove a cell (and its subtree). A sheet keeps at least one parent cell. */
+function removeCell(id) {
+  const c = ctx(id);
+  if (!c) return;
+  if (c.depth === 1 && activeSheet().roots.length <= 1) return; // keep one parent
+  detach(id);
+  selectedId = c.parent ? c.parent.id : (activeSheet().roots[0]?.id ?? null);
+  renderSheet();
+}
 
-sheetEl.addEventListener("mousedown", (e) => {
-  if (e.button !== 0) return; // left button selects; right button opens the menu
-  const cell = e.target.closest(".cell");
-  if (!cell) return;
+// ---- drag & drop (move a cell) ----------------------------------------------
+//
+// Drop a dragged cell onto a target cell to make it that cell's last child
+// (respecting the five-level cap: the target's depth + 1 plus the dragged
+// subtree's height must not exceed MAX_DEPTH, and a cell can't be dropped into
+// its own subtree). Drop onto the empty canvas to promote it to a parent.
+
+let dragId = null;
+
+/** Whether the dragged cell may become a child at `newDepth` (1 = parent). */
+function fitsAt(cell, newDepth) {
+  return newDepth >= 1 && newDepth + subtreeHeight(cell) - 1 <= MAX_DEPTH;
+}
+
+sheetEl.addEventListener("dragstart", (e) => {
+  const box = e.target.closest(".cell-box");
+  if (!box || box.dataset.depth === "1") return; // parents don't move
   if (editing) commitEdit();
-  const t = tableById(cell.dataset.tableId);
-  const p = t && parseCellAddr(cell.dataset.addr, t);
-  // Shift-click extends the selection (within the same table); plain click resets it.
-  if (p) select(p.c, p.r, t.id, e.shiftKey && t.id === selected.tableId);
+  dragId = box.dataset.id;
+  box.classList.add("dragging");
+  e.dataTransfer.effectAllowed = "move";
+  e.dataTransfer.setData("text/plain", dragId);
+});
+
+sheetEl.addEventListener("dragend", () => {
+  dragId = null;
+  for (const b of sheetEl.querySelectorAll(".drop-target, .dragging")) {
+    b.classList.remove("drop-target", "dragging");
+  }
+});
+
+sheetEl.addEventListener("dragover", (e) => {
+  if (!dragId) return;
+  const dragged = ctx(dragId)?.cell;
+  if (!dragged) return;
+  const box = e.target.closest(".cell-box");
+  for (const b of sheetEl.querySelectorAll(".drop-target")) b.classList.remove("drop-target");
+
+  if (box) {
+    const targetId = box.dataset.id;
+    const t = ctx(targetId);
+    // Not into its own subtree, and the whole subtree must still fit.
+    if (!t || isSelfOrAncestor(dragId, targetId) || !fitsAt(dragged, t.depth + 1)) return;
+    e.preventDefault();
+    box.classList.add("drop-target");
+  } else {
+    // Empty canvas → promote to parent (階層1) if the subtree fits.
+    if (!fitsAt(dragged, 1)) return;
+    e.preventDefault();
+    sheetEl.classList.add("drop-target");
+  }
+});
+
+sheetEl.addEventListener("dragleave", (e) => {
+  if (e.target === sheetEl) sheetEl.classList.remove("drop-target");
+});
+
+sheetEl.addEventListener("drop", (e) => {
+  if (!dragId) return;
+  const dragged = ctx(dragId)?.cell;
+  if (!dragged) return;
+  const box = e.target.closest(".cell-box");
+  sheetEl.classList.remove("drop-target");
+
+  if (box) {
+    const targetId = box.dataset.id;
+    const t = ctx(targetId);
+    if (!t || isSelfOrAncestor(dragId, targetId) || !fitsAt(dragged, t.depth + 1)) return;
+    e.preventDefault();
+    const moved = detach(dragId);
+    t.cell.children.push(moved); // reindex below resolves t.cell by identity
+    renderSheet();
+    select(moved.id);
+  } else {
+    if (!fitsAt(dragged, 1)) return;
+    e.preventDefault();
+    const moved = detach(dragId);
+    activeSheet().roots.push(moved);
+    renderSheet();
+    select(moved.id);
+  }
+});
+
+// ---- pointer & keyboard events ----------------------------------------------
+
+// A click selects the innermost cell under the pointer; a double-click edits it.
+// Listening on the value element's `.cell-box` via closest keeps a child click
+// from also selecting its ancestors.
+sheetEl.addEventListener("mousedown", (e) => {
+  if (e.button !== 0) return;
+  const box = e.target.closest(".cell-box");
+  if (!box) return;
+  if (editing) commitEdit();
+  select(box.dataset.id);
 });
 
 sheetEl.addEventListener("dblclick", (e) => {
-  if (e.target.closest(".cell")) beginEdit();
+  const box = e.target.closest(".cell-box");
+  if (!box) return;
+  select(box.dataset.id);
+  beginEdit();
 });
 
-// Right-click a cell to merge/unmerge; right-click the empty sheet to add a
-// table (with a chosen size). Right-clicking a table's name header is left alone
-// (so it stays a plain drag handle).
 sheetEl.addEventListener("contextmenu", (e) => {
-  const cellEl = e.target.closest(".cell");
-  if (cellEl) {
-    e.preventDefault();
-    const t = tableById(cellEl.dataset.tableId);
-    const p = parseCellAddr(cellEl.dataset.addr, t);
-    // If the click is outside the current selection, collapse onto this cell.
-    const [c0, r0, c1, r1] = normRange();
-    const inRange = t.id === selected.tableId && p.c >= c0 && p.c <= c1 && p.r >= r0 && p.r <= r1;
-    if (!inRange) select(p.c, p.r, t.id);
-    openCellMenu(e.clientX, e.clientY, t, p);
-    return;
-  }
-  if (e.target.closest(".table-card")) return;
+  const box = e.target.closest(".cell-box");
   e.preventDefault();
-  openTableMenu(e.clientX, e.clientY);
+  if (box) {
+    select(box.dataset.id);
+    openCellMenu(e.clientX, e.clientY, box.dataset.id);
+  } else {
+    openCanvasMenu(e.clientX, e.clientY);
+  }
 });
 
-// Dismiss the menu on any pointer-down outside it.
 document.addEventListener("pointerdown", (e) => {
-  if (ctxMenu && !ctxMenu.contains(e.target)) closeTableMenu();
+  if (ctxMenu && !ctxMenu.contains(e.target)) closeMenu();
 });
 
 sheetEl.addEventListener("keydown", (e) => {
   if (editing) {
-    if (e.key === "Enter") { e.preventDefault(); commitEdit({ dc: 0, dr: 1 }); }
+    if (e.key === "Enter") { e.preventDefault(); commitEdit(); }
     else if (e.key === "Escape") { e.preventDefault(); cancelEdit(); }
-    else if (e.key === "Tab") { e.preventDefault(); commitEdit({ dc: e.shiftKey ? -1 : 1, dr: 0 }); }
     return;
   }
   switch (e.key) {
-    case "ArrowUp": e.preventDefault(); moveFocus(0, -1, e.shiftKey); break;
-    case "ArrowDown": e.preventDefault(); moveFocus(0, 1, e.shiftKey); break;
-    case "ArrowLeft": e.preventDefault(); moveFocus(-1, 0, e.shiftKey); break;
-    case "ArrowRight": e.preventDefault(); moveFocus(1, 0, e.shiftKey); break;
-    case "Enter": e.preventDefault(); beginEdit(); break;
-    case "Tab": e.preventDefault(); moveFocus(e.shiftKey ? -1 : 1, 0); break;
-    case "F2": e.preventDefault(); beginEdit(); break;
-    case "Backspace":
-    case "Delete": {
-      e.preventDefault();
-      clearSelection();
-      break;
-    }
+    case "ArrowUp": case "ArrowDown": case "ArrowLeft": case "ArrowRight":
+      e.preventDefault(); moveSelection(e.key); break;
+    case "Enter": case "F2": e.preventDefault(); beginEdit(); break;
+    case "Backspace": case "Delete": e.preventDefault(); removeCell(selectedId); break;
     default:
-      // A printable key starts a fresh edit, replacing the cell (spreadsheet convention).
+      // A printable key starts a fresh edit, replacing the value.
       if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
         e.preventDefault();
         beginEdit(e.key);
@@ -515,22 +389,13 @@ sheetEl.addEventListener("keydown", (e) => {
   }
 });
 
-// Name box: type a namespaced (`Table.A1`) or bare (`A1`) reference, Enter jumps.
-nameBox.addEventListener("keydown", (e) => {
-  if (e.key !== "Enter") return;
-  if (jumpTo(nameBox.value)) focusSheet();
-  else renderSelection();
-});
-
-// Formula bar mirrors and edits the selected cell.
+// Formula bar mirrors and edits the selected cell's value.
 formulaInput.addEventListener("keydown", (e) => {
   if (e.key === "Enter") {
     e.preventDefault();
-    const t = selTable();
-    const a = resolvedAddr(t, selected.c, selected.r);
-    setRaw(t, a, formulaInput.value.trim());
-    paint(t, a);
-    moveFocus(0, 1);
+    const c = ctx(selectedId);
+    if (c) c.cell.value = formulaInput.value.trim();
+    renderSheet();
     focusSheet();
   } else if (e.key === "Escape") {
     renderSelection();
@@ -538,130 +403,15 @@ formulaInput.addEventListener("keydown", (e) => {
   }
 });
 
-/** Clear every cell in the current selection rectangle (resolving merges). */
-function clearSelection() {
-  const t = selTable();
-  const [c0, r0, c1, r1] = normRange();
-  const done = new Set();
-  for (let r = r0; r <= r1; r++) {
-    for (let c = c0; c <= c1; c++) {
-      const a = resolvedAddr(t, c, r);
-      if (done.has(a)) continue;
-      done.add(a);
-      setRaw(t, a, "");
-      paint(t, a);
-    }
-  }
-  renderSelection();
-}
-
-// ---- tables & sheet tabs ----------------------------------------------------
-
-/** Create a table of the given size at sheet-content coordinates (x, y). */
-function addTableAt(cols, rows, x, y) {
-  if (editing) commitEdit();
-  const t = makeTable(autoTableName(), cols, rows, Math.max(0, Math.round(x)), Math.max(0, Math.round(y)));
-  activeSheet().tables.push(t);
-  renderSheet();
-  select(0, 0, t.id);
-  focusSheet();
-}
-
-// ---- drag to reposition -----------------------------------------------------
-
-function startDrag(t, card, e) {
-  if (e.button !== 0) return; // left button only; right-click is the add menu
-
-  const startX = e.clientX, startY = e.clientY;
-  const origX = t.x, origY = t.y;
-  let dragging = false; // only after the pointer moves past a small threshold,
-                        // so a plain double-click still reaches beginRename.
-
-  const onMove = (ev) => {
-    if (!dragging) {
-      if (Math.abs(ev.clientX - startX) + Math.abs(ev.clientY - startY) < 4) return;
-      dragging = true;
-      if (editing) commitEdit();
-      closeTableMenu();
-      t.z = ++zTop;
-      card.style.zIndex = String(t.z);
-      card.classList.add("dragging");
-      card.setPointerCapture(e.pointerId);
-    }
-    t.x = Math.max(0, origX + (ev.clientX - startX));
-    t.y = Math.max(0, origY + (ev.clientY - startY));
-    card.style.left = `${t.x}px`;
-    card.style.top = `${t.y}px`;
-  };
-  const onUp = () => {
-    if (dragging) {
-      card.releasePointerCapture(e.pointerId);
-      card.classList.remove("dragging");
-      fitCanvas();
-    }
-    card.removeEventListener("pointermove", onMove);
-    card.removeEventListener("pointerup", onUp);
-  };
-  card.addEventListener("pointermove", onMove);
-  card.addEventListener("pointerup", onUp);
-}
-
-// ---- right-click "new table" menu -------------------------------------------
+// ---- context menus ----------------------------------------------------------
 
 let ctxMenu = null;
 
-function openTableMenu(clientX, clientY) {
-  closeTableMenu();
-  // Where the table lands, in sheet-content coordinates (not viewport).
-  const rect = sheetEl.getBoundingClientRect();
-  const dropX = clientX - rect.left;
-  const dropY = clientY - rect.top;
-
-  const menu = el("div", "ctx-menu");
-  menu.append(el("div", "ctx-title", "New table"));
-
-  const field = (labelText, value, max) => {
-    const label = el("label", "ctx-field");
-    label.append(el("span", null, labelText));
-    const input = el("input");
-    input.type = "number";
-    input.min = "1";
-    input.max = String(max);
-    input.value = String(value);
-    label.append(input);
-    menu.append(label);
-    return input;
-  };
-  const colIn = field("Columns", DEFAULT_COLS, MAX_COLS);
-  const rowIn = field("Rows", DEFAULT_ROWS, MAX_ROWS);
-
-  const create = el("button", "ctx-create", "Create");
-  const submit = () => {
-    addTableAt(
-      clampInt(colIn.value, 1, MAX_COLS, DEFAULT_COLS),
-      clampInt(rowIn.value, 1, MAX_ROWS, DEFAULT_ROWS),
-      dropX, dropY,
-    );
-    closeTableMenu();
-  };
-  create.addEventListener("click", submit);
-  menu.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") { e.preventDefault(); submit(); }
-    else if (e.key === "Escape") { e.preventDefault(); closeTableMenu(); focusSheet(); }
-  });
-  menu.append(create);
-
-  placeMenu(menu, clientX, clientY);
-  colIn.focus();
-  colIn.select();
-}
-
-function closeTableMenu() {
+function closeMenu() {
   ctxMenu?.remove();
   ctxMenu = null;
 }
 
-/** Place an already-populated menu near the cursor, kept inside the viewport. */
 function placeMenu(menu, clientX, clientY) {
   document.body.append(menu);
   ctxMenu = menu;
@@ -669,45 +419,40 @@ function placeMenu(menu, clientX, clientY) {
   menu.style.top = `${Math.max(8, Math.min(clientY, innerHeight - menu.offsetHeight - 8))}px`;
 }
 
-// ---- right-click cell menu (merge / unmerge) --------------------------------
+function menuItem(menu, label, enabled, onClick) {
+  const b = el("button", "ctx-item", label);
+  b.disabled = !enabled;
+  if (enabled) b.addEventListener("click", () => { onClick(); closeMenu(); focusSheet(); });
+  menu.append(b);
+  return b;
+}
 
-function openCellMenu(clientX, clientY, t, p) {
-  closeTableMenu();
+function openCellMenu(clientX, clientY, id) {
+  closeMenu();
+  const c = ctx(id);
+  if (!c) return;
   const menu = el("div", "ctx-menu");
-
-  const [c0, r0, c1, r1] = normRange();
-  const rangeCells = t.id === selected.tableId ? (c1 - c0 + 1) * (r1 - r0 + 1) : 1;
-  const merge = mergeAt(t, p.c, p.r);
-
-  const item = (label, enabled, onClick) => {
-    const b = el("button", "ctx-item", label);
-    b.disabled = !enabled;
-    if (enabled) b.addEventListener("click", onClick);
-    menu.append(b);
-    return b;
-  };
-
-  item("Merge cells", rangeCells > 1, () => {
-    if (mergeRange(t, c0, r0, c1, r1)) {
-      renderSheet();
-      select(c0, r0, t.id); // selection collapses onto the new merged cell
-      focusSheet();
-    }
-    closeTableMenu();
-  });
-  item("Unmerge cells", merge != null, () => {
-    unmergeAt(t, p.c, p.r);
-    renderSheet();
-    select(p.c, p.r, t.id);
-    focusSheet();
-    closeTableMenu();
-  });
-
+  const childLabel = c.depth < MAX_DEPTH ? `${LEVEL_JA[c.depth + 1]}セルを追加` : "最深階層（追加不可）";
+  menuItem(menu, childLabel, c.depth < MAX_DEPTH, () => addChild(id));
+  const deletable = !(c.depth === 1 && activeSheet().roots.length <= 1);
+  menuItem(menu, "このセルを削除", deletable, () => removeCell(id));
   menu.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") { e.preventDefault(); closeTableMenu(); focusSheet(); }
+    if (e.key === "Escape") { e.preventDefault(); closeMenu(); focusSheet(); }
   });
   placeMenu(menu, clientX, clientY);
 }
+
+function openCanvasMenu(clientX, clientY) {
+  closeMenu();
+  const menu = el("div", "ctx-menu");
+  menuItem(menu, "親セルを追加", true, addParent);
+  menu.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") { e.preventDefault(); closeMenu(); focusSheet(); }
+  });
+  placeMenu(menu, clientX, clientY);
+}
+
+// ---- sheet tabs -------------------------------------------------------------
 
 function renderTabs() {
   tabsEl.replaceChildren();
@@ -726,9 +471,9 @@ function renderTabs() {
 function switchSheet(i) {
   if (editing) commitEdit();
   doc.active = i;
+  selectedId = activeSheet().roots[0]?.id ?? null;
   renderSheet();
   renderTabs();
-  select(0, 0, activeSheet().tables[0].id);
 }
 
 function addSheet() {
@@ -740,5 +485,5 @@ function addSheet() {
 
 renderSheet();
 renderTabs();
-select(0, 0, activeSheet().tables[0].id);
+select(activeSheet().roots[0].id);
 focusSheet();

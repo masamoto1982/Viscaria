@@ -9,10 +9,14 @@ plant, continuing Ajisai's (hydrangea) botanical lineage.
 ## Playground
 
 A live playground is published to GitHub Pages from `web/` (a build-free static site).
-The first slice is the grid shell — square cells, selection, in-cell and formula-bar
-editing, keyboard navigation, and sheets. Exact-arithmetic formula evaluation
-(`=A1+B1`) is wired next, through the Rust core compiled to WASM (it is deliberately not
-faked in JS floats, because exactness is the point).
+The shell is a **five-level nested-cell** canvas: a parent cell (親, level 1) holds child
+cells (子), which hold grandchildren (孫), then great-grandchildren (ひ孫), then
+great-great-grandchildren (玄孫) — five levels total. Every cell but a parent can be moved
+by drag & drop (drop onto a cell to nest it there, respecting the five-level cap; drop onto
+the empty canvas to promote it to a parent), and a double-click rewrites a cell's value.
+Exact-arithmetic evaluation is wired next, through the Rust core compiled to WASM — the
+cell's raw text is the human-facing surface, kept separate from the internal exact-real
+representation, and deliberately not faked in JS floats, because exactness is the point.
 
 ## What it is
 
