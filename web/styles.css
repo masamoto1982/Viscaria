@@ -57,19 +57,50 @@
 
   .app-bar {
     display: flex;
-    align-items: baseline;
+    align-items: center;
     gap: 0.6rem;
-    padding: 0.5rem 0.9rem;
+    padding: 0.45rem 0.9rem;
     background: var(--surface);
     border-block-end: 1px solid var(--line);
 
     & .brand { font-size: 1.05rem; font-weight: 650; letter-spacing: 0.01em; }
     & .tagline { font-size: 0.75rem; color: var(--muted); }
 
-    /* Math view toggle (Ajisai's Stack-area checkbox, moved to the app bar):
-       checked = KaTeX rendering, unchecked = canonical fraction strings. */
-    & .latex-toggle {
+    /* Paper size + orientation for the active sheet, pushed to the right. */
+    & .paper-ctl {
       margin-inline-start: auto;
+      display: flex;
+      align-items: center;
+      gap: 0.3rem;
+      font-size: 0.78rem;
+      color: var(--muted);
+
+      & select {
+        padding: 0.15rem 0.3rem;
+        border: 1px solid var(--line-strong);
+        border-radius: 6px;
+        background: var(--bg);
+        color: var(--ink);
+        font-size: 0.78rem;
+      }
+    }
+
+    & .paper-orient {
+      inline-size: 1.9rem;
+      padding: 0.15rem 0;
+      border: 1px solid var(--line-strong);
+      border-radius: 6px;
+      background: var(--bg);
+      color: var(--ink);
+      font-size: 0.78rem;
+      cursor: pointer;
+
+      &:hover { background: var(--head-bg); }
+    }
+
+    /* Math view toggle: checked = KaTeX rendering, unchecked = canonical
+       fraction strings. */
+    & .latex-toggle {
       display: flex;
       align-items: center;
       gap: 0.3rem;
@@ -123,28 +154,35 @@
     }
   }
 
+  /* The canvas is the gray scroll area around the paper. */
   .canvas {
     overflow: auto;
     padding: clamp(0.75rem, 2vw, 1.75rem);
     background: var(--bg);
   }
 
-  /* The board is the 親 (level 1) — the workbench. It is a positioning context
-     for the top-level 子 cards (absolutely placed on it) and a snap grid,
-     though the grid is invisible: dragging a card makes the snapping legible
-     on its own, so the dots would just be noise. It grows (min-width/height
-     set by app.js) so the cards stay scrollable. Right-click the bare board
-     to add a 子 (see .ctx-menu). */
+  /* The board is just the scroll surface; it holds one .paper (the active
+     sheet's page) centered horizontally. margin:auto (not flex/grid centering)
+     so a paper wider than the viewport aligns left and scrolls rather than
+     clipping its left edge. */
   .board {
-    position: relative;
     min-block-size: 100%;
     outline: none;
+  }
 
-    /* The workbench is selected (the context a new 子 is added to). Kept subtle
-       since it frames the whole surface. */
-    &.selected { outline: 2px solid var(--accent-soft); outline-offset: -3px; }
-    /* Highlighted while a dragged card hovers the bare board (→ nests as a 子). */
-    &.drop-target { outline: 2px dashed var(--accent); outline-offset: -6px; }
+  /* A sheet of paper — a fixed-size WYSIWYG page (dimensions set by app.js from
+     the sheet's size + orientation). It is the positioning context for its 親
+     cells and an invisible 16px snap grid; dragging a card makes the snapping
+     legible without drawn dots. Right-click it to add a 親 (see .ctx-menu). */
+  .paper {
+    position: relative;
+    margin: 0 auto;
+    background: var(--surface);
+    border: 1px solid var(--line-strong);
+    box-shadow: 0 2px 14px oklch(0% 0 0 / 0.16);
+
+    /* Highlighted while a dragged card hovers the bare paper (→ becomes a 親). */
+    &.drop-target { outline: 2px dashed var(--accent); outline-offset: -4px; }
   }
 
   /* Right-click menu: a simple list of actions (add child / add parent / delete). */
@@ -162,6 +200,39 @@
     border-radius: var(--radius);
     box-shadow: 0 10px 30px oklch(0% 0 0 / 0.22);
     font-size: 0.82rem;
+  }
+
+  /* Sheet tabs (bottom, Google Sheets style): the active sheet, others to
+     switch to, and a ＋ to add. Double-click a tab to rename it. */
+  .sheet-tabs {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.3rem 0.6rem;
+    background: var(--surface);
+    border-block-start: 1px solid var(--line);
+    overflow-x: auto;
+
+    & .sheet-tab {
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--muted);
+      padding: 0.25rem 0.7rem;
+      border-radius: 7px;
+      font-size: 0.82rem;
+      white-space: nowrap;
+      cursor: pointer;
+
+      &:hover { background: var(--head-bg); }
+      &[aria-selected="true"] {
+        color: var(--ink);
+        background: var(--head-bg);
+        border-color: var(--line-strong);
+        font-weight: 550;
+      }
+      &.editing { background: var(--surface); outline: 2px solid var(--accent); cursor: text; }
+      &.add { font-size: 1rem; line-height: 1; padding-inline: 0.55rem; color: var(--muted); }
+    }
   }
 }
 
