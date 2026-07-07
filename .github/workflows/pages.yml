@@ -49,6 +49,13 @@ jobs:
             echo "Deleting stale artifact $id"
             gh api -X DELETE "repos/${{ github.repository }}/actions/artifacts/$id"
           done
+      # Stamp the build/release timestamp into version.js so the header badge
+      # reads `ver.YYYYMMDDHHMM` (Ajisai's scheme). The site is build-free, so
+      # this is the one deploy-time rewrite — done on the runner copy only, not
+      # committed; version.js stays empty in source (runtime-clock fallback).
+      # JST to match the author's local time, as Ajisai's build machine did.
+      - name: Stamp build timestamp
+        run: printf 'export const BUILD_TIMESTAMP = "%s";\n' "$(TZ=Asia/Tokyo date +%Y%m%d%H%M)" > web/version.js
       # The playground is a static, build-free site: upload web/ as-is.
       - uses: actions/upload-pages-artifact@v5
         with:
