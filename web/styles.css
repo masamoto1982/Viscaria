@@ -130,17 +130,15 @@
   }
 
   /* The board is the 親 (level 1) — the workbench. It is a positioning context
-     and a snap grid: the top-level 子 cards are absolutely placed on it, and
-     it grows (min-width/height set by app.js) so the cards stay scrollable.
-     The dot grid marks the snap increment, same as a card's children canvas.
-     Right-click the bare board to add a 子 (see .ctx-menu). */
+     for the top-level 子 cards (absolutely placed on it) and a snap grid,
+     though the grid is invisible: dragging a card makes the snapping legible
+     on its own, so the dots would just be noise. It grows (min-width/height
+     set by app.js) so the cards stay scrollable. Right-click the bare board
+     to add a 子 (see .ctx-menu). */
   .board {
     position: relative;
     min-block-size: 100%;
     outline: none;
-    background-image: radial-gradient(circle, var(--line) 1px, transparent 1px);
-    background-size: var(--grid) var(--grid);
-    background-position: calc(var(--grid) / 2) calc(var(--grid) / 2);
 
     /* The workbench is selected (the context a new 子 is added to). Kept subtle
        since it frames the whole surface. */
@@ -255,14 +253,11 @@
     }
   }
 
-  /* Non-leaf front: the children canvas fills the card. The dot grid marks
-     the snap increment — where a dragged or resized cell will land. */
+  /* Non-leaf front: the children canvas fills the card. The snap grid is
+     invisible (see .board) — the children sit on it without dots drawn. */
   .cell-children {
     position: absolute;
     inset: 0;
-    background-image: radial-gradient(circle, var(--line) 1px, transparent 1px);
-    background-size: var(--grid) var(--grid);
-    background-position: calc(var(--grid) / 2) calc(var(--grid) / 2);
   }
 
   /* The back of the card: the cell's name (double-click to rename) and the
