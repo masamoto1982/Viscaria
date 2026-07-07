@@ -47,6 +47,7 @@ const DEFAULT_H = 96; // 6 grid units
 const MIN_W = 64;
 const MIN_H = 48;
 const PAD = 8; // margin kept around children when auto-placing / growing
+const BORDER = 1; // cell border width (px) — must match `.cell-box` in styles.css
 
 const snap = (v) => Math.max(0, Math.round(v / GRID) * GRID);
 
@@ -349,8 +350,14 @@ function buildCell(cell, depth) {
   const box = el("div", "cell-box");
   box.dataset.id = cell.id;
   box.dataset.depth = String(depth);
-  box.style.width = `${cell.w}px`;
-  box.style.height = `${cell.h}px`;
+  // Draw the box one border wider/taller than its logical size (which stays
+  // grid-snapped for placement). When a card sits flush against a neighbor
+  // (kissed edge-to-edge), this 1px bleed makes their two 1px borders land in
+  // the same column/row and paint as a single shared line, instead of two
+  // adjacent borders reading as a 2px-thick seam. For an isolated card the
+  // extra pixel is invisible.
+  box.style.width = `${cell.w + BORDER}px`;
+  box.style.height = `${cell.h + BORDER}px`;
   if (depth > 1) {
     box.classList.add("positioned");
     box.style.left = `${cell.x}px`;
@@ -564,8 +571,8 @@ function attachResize(handle, box, cell) {
     const onMove = (ev) => {
       cell.w = Math.max(minW, snap(origW + (ev.clientX - startX)));
       cell.h = Math.max(minH, snap(origH + (ev.clientY - startY)));
-      box.style.width = `${cell.w}px`;
-      box.style.height = `${cell.h}px`;
+      box.style.width = `${cell.w + BORDER}px`; // +border to match buildCell
+      box.style.height = `${cell.h + BORDER}px`;
     };
     const onUp = () => {
       handle.releasePointerCapture(e.pointerId);
@@ -636,12 +643,14 @@ function dropOriginRect(id) {
 }
 
 /** Grid-snap (x, y) inside `target`, then resolve contact against the other
- *  children: merely coming near a sibling leaves the background grid in
- *  charge, but pushing INTO one snaps the dragged cell flush against its
- *  edge — cells kiss instead of overlapping, so shoving cells together
- *  assembles a table. Resolution pushes out along the axis of least
- *  penetration; a few passes settle corridor cases. Since sibling geometry
- *  is itself grid-snapped, flush positions stay on the grid. */
+ *  children: merely coming near a sibling leaves the grid in charge, but
+ *  pushing INTO one snaps the dragged cell flush against its edge — cells
+ *  kiss instead of overlapping, so shoving cells together assembles a table.
+ *  Resolution pushes out along the axis of least penetration; a few passes
+ *  settle corridor cases. Positions stay grid-snapped (flush = sib.x + sib.w),
+ *  so a chain of kissed cells stays on one lattice; the coincident 1px seam
+ *  between them is handled at render time (buildCell draws each box one border
+ *  wider so a flush neighbor's border lands on top of this one's). */
 function resolveCellPlacement(target, dragged, x, y) {
   x = snap(x);
   y = snap(y);
