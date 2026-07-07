@@ -14,6 +14,11 @@
   <header class="app-bar">
     <h1 class="brand">Viscaria</h1>
     <p class="tagline">table-oriented · exact-real spreadsheet</p>
+    <!-- Paper controls for the active sheet: size (A3–B5) and orientation. -->
+    <label class="paper-ctl">用紙
+      <select id="paper-size" aria-label="Paper size"></select>
+    </label>
+    <button id="paper-orient" class="paper-orient" type="button" aria-label="Paper orientation">縦</button>
     <!-- Math view toggle (Ajisai's Stack-area checkbox, relocated to the app
          bar since in Viscaria the cells themselves are the stack area).
          Checked = KaTeX rendering of numeric values; unchecked = the
@@ -28,11 +33,14 @@
     <input id="formula-input" class="formula-input" aria-label="Cell value" spellcheck="false" autocomplete="off">
   </div>
 
-  <!-- The document is a forest of nested cells (five levels deep) laid out here
-       by app.js. There is no sheet: the board itself is the whole document. -->
+  <!-- The board is the scroll area; app.js lays a fixed-size .paper (the active
+       sheet's page) onto it and places 親 cells on the paper. -->
   <main class="canvas">
-    <div id="board" class="board" role="group" aria-label="Cells" tabindex="0"></div>
+    <div id="board" class="board" role="group" aria-label="Sheet" tabindex="0"></div>
   </main>
+
+  <!-- Sheet tabs (bottom, Google Sheets style): switch, double-click to rename, ＋ to add. -->
+  <nav class="sheet-tabs" id="sheet-tabs" aria-label="Sheets"></nav>
 
   <script type="module" src="./app.js"></script>
 </body>
