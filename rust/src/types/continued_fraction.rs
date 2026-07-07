@@ -4985,10 +4985,10 @@ mod tests {
     }
 
     /// Measurement (NTT feasibility — REACH). How large do the BigInt operands
-    /// in Ajisai's numeric core actually get? NTT-based multiplication only
+    /// in the numeric core actually get? NTT-based multiplication only
     /// beats `num-bigint`'s Karatsuba/Toom in the large-operand tail (tens of
     /// thousands of bits and up), so this records the operand sizes reached by
-    /// representative heavy computations to see whether Ajisai ever lands there.
+    /// representative heavy computations to see whether the core ever lands there.
     /// Reported; a coarse sanity bound is asserted.
     #[test]
     fn ntt_operand_reach_measurement() {
