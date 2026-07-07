@@ -1,3 +1,5 @@
+import { BUILD_TIMESTAMP } from "./version.js";
+
 // Viscaria playground — sheets of paper, cells placed on them.
 //
 // The document is a set of *sheets*. Each sheet is a sheet of paper of a
@@ -1010,8 +1012,25 @@ function addSheet() {
   switchSheet(doc.sheets.length - 1);
 }
 
+// ---- version badge (Ajisai's timestamp scheme) ---------------------------------------
+//
+// `ver.YYYYMMDDHHMM` — the build/release timestamp stamped into version.js at
+// deploy, falling back to the current time when served build-free from source
+// (mirrors Ajisai's setBuildVersionLabel / formatTimestamp).
+
+function formatTimestamp(date) {
+  const p = (n) => `${n}`.padStart(2, "0");
+  return `${date.getFullYear()}${p(date.getMonth() + 1)}${p(date.getDate())}${p(date.getHours())}${p(date.getMinutes())}`;
+}
+
+function setVersionLabel() {
+  const elx = document.getElementById("version");
+  if (elx) elx.textContent = `ver.${BUILD_TIMESTAMP || formatTimestamp(new Date())}`;
+}
+
 // ---- boot ------------------------------------------------------------------------------
 
+setVersionLabel();
 renderTabs();
 syncPaperControls();
 renderBoard();
