@@ -129,19 +129,23 @@
     background: var(--bg);
   }
 
-  /* The board is the whole document — no sheet wraps it. Parent cells (階層1)
-     flow left-to-right, wrapping as needed, and are added by right-clicking
-     the empty board (see .ctx-menu). It is also the drop zone that promotes a
-     dragged cell to a parent. */
+  /* The board is the 親 (level 1) — the workbench. It is a positioning context
+     and a snap grid: the top-level 子 cards are absolutely placed on it, and
+     it grows (min-width/height set by app.js) so the cards stay scrollable.
+     The dot grid marks the snap increment, same as a card's children canvas.
+     Right-click the bare board to add a 子 (see .ctx-menu). */
   .board {
-    display: flex;
-    flex-flow: row wrap;
-    align-items: start;
-    gap: 0.75rem;
+    position: relative;
     min-block-size: 100%;
     outline: none;
+    background-image: radial-gradient(circle, var(--line) 1px, transparent 1px);
+    background-size: var(--grid) var(--grid);
+    background-position: calc(var(--grid) / 2) calc(var(--grid) / 2);
 
-    /* Highlighted while a dragged cell hovers empty board (→ becomes a parent). */
+    /* The workbench is selected (the context a new 子 is added to). Kept subtle
+       since it frames the whole surface. */
+    &.selected { outline: 2px solid var(--accent-soft); outline-offset: -3px; }
+    /* Highlighted while a dragged card hovers the bare board (→ nests as a 子). */
     &.drop-target { outline: 2px dashed var(--accent); outline-offset: -6px; }
   }
 

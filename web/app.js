@@ -1,10 +1,11 @@
 // Viscaria playground — five-level nested cell cards.
 //
-// The document is a forest of nested cells five levels deep — 親 (level 1) →
-// 子 → 孫 → ひ孫 → 玄孫. There is no sheet wrapper: the board is the document,
-// and 親 cells sit directly on it.
+// The board itself is the 親 (level 1) — the workbench. It starts empty. The
+// cells you place on it are 子 (level 2), which nest down through 孫 and ひ孫
+// to 玄孫 (level 5): five levels counting the board. The board is not a card;
+// it is the fixed surface every card lives on.
 //
-// Every cell is a *card* with two faces:
+// Every cell but the board is a *card* with two faces:
 //
 //   Front (the normal view) — a leaf cell (no children) IS its value: the
 //   whole card face shows the value, editable with a double-click. A cell
@@ -15,13 +16,13 @@
 //   with the add-child (＋) and delete (×) controls. Flipping hides the
 //   front entirely — children included — exactly like turning over a card.
 //
-// Right-click a cell that isn't selected and it just selects; right-click it
+// Right-click a card that isn't selected and it just selects; right-click it
 // again now that it's selected and the card flips over. Right-click the empty
-// board to add a new 親 cell.
+// board (the 親) to add a 子 cell to it.
 //
-// Every cell except a 親 can be moved by drag & drop: drop it onto another
-// cell to nest it there (the five-level cap and self-subtree checks are
-// enforced), or onto the empty board to promote it to a 親. Dragging is
+// Every card can be moved by drag & drop: drop it onto another cell — or onto
+// the bare board — to nest it there (the five-level cap and self-subtree
+// checks are enforced). Dragging is
 // pointer-event based, not native HTML5 drag & drop — nested `draggable`
 // elements make the browser pick the wrong ancestor. Positions and sizes
 // snap to a visible dot grid, and every cell has a corner resize handle,
@@ -200,12 +201,14 @@ try { latexView = localStorage.getItem(LATEX_VIEW_STORAGE_KEY) === "1"; } catch 
 
 // ---- model ------------------------------------------------------------------
 //
-// doc.roots is the forest of 親 cells. A cell owns a name (its back-face
-// label), a raw value (its human-facing surface, separate from the internal
-// exact-real representation), an ordered list of child cells, a grid-snapped
-// position (x, y) relative to its parent's front face (meaningful for depth
-// ≥ 2 only — 親 cells flow on the board), a grid-snapped size (w, h), and
-// whether the card is currently showing its back (`flipped`).
+// The board is the 親 (level 1): a cell whose children are the top-level 子
+// cards. It is not rendered as a card — it is the #board surface itself — so
+// its own name/value/size/flipped fields go unused; only its `children` and
+// its identity as the depth-1 root matter. Every other cell owns a name (its
+// back-face label), a raw value (its human-facing surface, separate from the
+// internal exact-real representation), an ordered list of children, a
+// grid-snapped position (x, y) within its parent's front face, a grid-snapped
+// size (w, h), and whether the card currently shows its back (`flipped`).
 
 let idSeq = 0;
 const makeCell = () => ({
@@ -220,7 +223,8 @@ const makeCell = () => ({
   flipped: false,
 });
 
-const doc = { roots: [makeCell()] };
+// The workbench. Starts empty; right-click it to add a 子.
+const board = makeCell();
 
 // ---- tree index (rebuilt each render) ----------------------------------------
 //
@@ -236,7 +240,8 @@ function reindex() {
     index.set(cell.id, { cell, parent, siblings, pos, depth, trail });
     cell.children.forEach((ch, i) => walk(ch, cell, cell.children, i, depth + 1, [...trail, ch]));
   };
-  doc.roots.forEach((c, i) => walk(c, null, doc.roots, i, 1, [c]));
+  // The board is the depth-1 root; its children are depth 2 (子) and down.
+  walk(board, null, [board], 0, 1, [board]);
 }
 
 const ctx = (id) => index.get(id) ?? null;
@@ -271,7 +276,8 @@ function detach(id) {
 /** Grow a cell so its front face contains its children's bounding box —
  *  a freshly added or dropped-in child must never be invisible outside it. */
 function growToFit(cell) {
-  if (!cell.children.length) return;
+  // The board grows via fitBoard (its size is the scroll area, not w/h).
+  if (cell === board || !cell.children.length) return;
   cell.w = Math.max(cell.w, ...cell.children.map((ch) => ch.x + ch.w + PAD));
   cell.h = Math.max(cell.h, ...cell.children.map((ch) => ch.y + ch.h + PAD));
 }
@@ -291,7 +297,7 @@ const boardEl = document.getElementById("board");
 const nameBox = document.getElementById("name-box");
 const formulaInput = document.getElementById("formula-input");
 
-let selectedId = doc.roots[0].id;
+let selectedId = board.id; // the workbench is selected until a card is
 let editing = null; // { id, field: "value" | "name" } while an in-cell edit is live
 
 const focusBoard = () => boardEl.focus();
@@ -318,10 +324,25 @@ function editableEl(id, field) {
 
 function renderBoard() {
   reindex();
-  if (!index.has(selectedId)) selectedId = doc.roots[0]?.id ?? null;
+  if (!index.has(selectedId)) selectedId = board.id;
   boardEl.replaceChildren();
-  for (const root of doc.roots) boardEl.append(buildCell(root, 1));
+  for (const child of board.children) boardEl.append(buildCell(child, 2));
+  fitBoard();
   renderSelection();
+}
+
+/** Grow the board's scroll area to contain its cards. Only grows beyond the
+ *  visible canvas (CSS keeps the board at least full-size otherwise), so there
+ *  is always bare board to click and right-click. */
+function fitBoard() {
+  let right = 0, bottom = 0;
+  for (const ch of board.children) {
+    right = Math.max(right, ch.x + ch.w);
+    bottom = Math.max(bottom, ch.y + ch.h);
+  }
+  const view = boardEl.parentElement;
+  boardEl.style.minWidth = right + GRID > view.clientWidth ? `${right + GRID}px` : "";
+  boardEl.style.minHeight = bottom + GRID > view.clientHeight ? `${bottom + GRID}px` : "";
 }
 
 function buildCell(cell, depth) {
@@ -388,7 +409,6 @@ function buildCell(cell, depth) {
   addBtn.addEventListener("click", (e) => { e.stopPropagation(); addChild(cell.id); });
   const delBtn = el("button", "face-btn danger", "×");
   delBtn.title = "このセルを削除";
-  delBtn.disabled = depth === 1 && doc.roots.length <= 1;
   delBtn.addEventListener("pointerdown", (e) => e.stopPropagation());
   delBtn.addEventListener("click", (e) => { e.stopPropagation(); removeCell(cell.id); });
   buttons.append(addBtn, delBtn);
@@ -403,13 +423,13 @@ function buildCell(cell, depth) {
   attachResize(handle, box, cell);
 
   attachFlip(box, cell);
-  if (depth > 1) attachDrag(box, cell);
-  else attachSelectOnly(box, cell);
+  attachDrag(box, cell); // every card is draggable (only the board is fixed)
 
   return box;
 }
 
 function renderSelection() {
+  boardEl.classList.remove("selected");
   for (const b of boardEl.querySelectorAll(".cell-box.selected")) b.classList.remove("selected");
   const c = ctx(selectedId);
   if (!c) {
@@ -417,11 +437,15 @@ function renderSelection() {
     if (!editing) formulaInput.value = "";
     return;
   }
-  boxOf(selectedId)?.classList.add("selected");
-  // Breadcrumb of names; an unnamed cell falls back to its positional label
-  // (親1, 子2, …). E.g. 請求書 › 子1 › 単価.
+  if (c.cell === board) boardEl.classList.add("selected");
+  else boxOf(selectedId)?.classList.add("selected");
+  // Breadcrumb of names, rooted at the board (親). An unnamed cell falls back
+  // to its positional label (子1, 孫2, …); the board shows its name or 親.
+  // E.g. 親 › 請求書 › 単価.
   nameBox.value = c.trail
-    .map((cell, i) => cell.name || `${LEVEL_JA[i + 1] ?? "?"}${(ctx(cell.id)?.pos ?? 0) + 1}`)
+    .map((cell, i) => cell === board
+      ? (cell.name || "親")
+      : (cell.name || `${LEVEL_JA[i + 1] ?? "?"}${(ctx(cell.id)?.pos ?? 0) + 1}`))
     .join(" › ");
   if (!editing) formulaInput.value = c.cell.value;
 }
@@ -514,21 +538,12 @@ function addChild(id) {
   select(child.id);
 }
 
-/** Add a new empty 親 cell to the board. */
-function addParent() {
-  const p = makeCell();
-  doc.roots.push(p);
-  renderBoard();
-  select(p.id);
-}
-
-/** Remove a cell and its subtree. The board keeps at least one 親. */
+/** Remove a card and its subtree. The board itself (the 親) can't be removed. */
 function removeCell(id) {
   const c = ctx(id);
-  if (!c) return;
-  if (c.depth === 1 && doc.roots.length <= 1) return;
+  if (!c || c.cell === board) return;
   detach(id);
-  selectedId = c.parent ? c.parent.id : (doc.roots[0]?.id ?? null);
+  selectedId = c.parent ? c.parent.id : board.id;
   renderBoard();
 }
 
@@ -591,19 +606,19 @@ function attachFlip(box, cell) {
 // sit on the same DOM path, so each handler stops propagation — the innermost
 // cell under the pointer is the one that acts.
 
-/** What's under the pointer: a cell, the bare board, or nothing. */
+/** Which cell is under the pointer to drop into: a card, the board itself (the
+ *  bare surface = the 親), or nothing (outside the board). */
 function dropCandidateAt(clientX, clientY) {
   const hit = document.elementFromPoint(clientX, clientY);
   if (!hit) return null;
   const boxEl = hit.closest(".cell-box");
-  if (boxEl) return { kind: "cell", id: boxEl.dataset.id };
-  if (hit.closest("#board")) return { kind: "board" };
+  if (boxEl) return { id: boxEl.dataset.id };
+  if (hit.closest("#board")) return { id: board.id };
   return null;
 }
 
 function dropIsValid(cand, dragged, draggedId) {
   if (!cand) return false;
-  if (cand.kind === "board") return fitsAt(dragged, 1);
   const t = ctx(cand.id);
   return t != null && !isSelfOrAncestor(draggedId, cand.id) && fitsAt(dragged, t.depth + 1);
 }
@@ -613,6 +628,7 @@ function dropIsValid(cand, dragged, draggedId) {
  *  the mid-drag ghost and the final landing use this same origin, so the
  *  position seen during the drag is exactly where the cell lands. */
 function dropOriginRect(id) {
+  if (id === board.id) return boardEl.getBoundingClientRect();
   const box = boxOf(id);
   if (!box) return null;
   const area = box.querySelector(":scope > .card > .face.front > .cell-children");
@@ -659,8 +675,7 @@ function clearDropHighlight() {
 function highlightDropTarget(cand) {
   clearDropHighlight();
   if (!cand) return;
-  if (cand.kind === "board") boardEl.classList.add("drop-target");
-  else boxOf(cand.id)?.classList.add("drop-target");
+  (cand.id === board.id ? boardEl : boxOf(cand.id))?.classList.add("drop-target");
 }
 
 function attachDrag(box, cell) {
@@ -691,13 +706,12 @@ function attachDrag(box, cell) {
       const cand = dropCandidateAt(ev.clientX, ev.clientY);
       const valid = dropIsValid(cand, cell, cell.id);
       highlightDropTarget(valid ? cand : null);
-      // Over a valid cell the ghost sticks to that cell's grid and kisses
-      // sibling edges on contact — the drag itself snaps, not just the
-      // release. Over the board (promotion to 親, which flows rather than
-      // being positioned) it follows the pointer.
+      // Over a valid target — a card or the bare board — the ghost sticks to
+      // that target's grid and kisses sibling edges on contact, so the drag
+      // itself snaps, not just the release.
       let left = ev.clientX - grabDX;
       let top = ev.clientY - grabDY;
-      if (valid && cand.kind === "cell") {
+      if (valid) {
         const origin = dropOriginRect(cand.id);
         const target = ctx(cand.id)?.cell;
         if (origin && target) {
@@ -726,13 +740,6 @@ function finishDrag(clientX, clientY, draggedId, grabDX, grabDY) {
   const dragged = ctx(draggedId)?.cell;
   const cand = dragged ? dropCandidateAt(clientX, clientY) : null;
   if (dragged && dropIsValid(cand, dragged, draggedId)) {
-    if (cand.kind === "board") {
-      const moved = detach(draggedId);
-      doc.roots.push(moved);
-      renderBoard();
-      select(moved.id);
-      return;
-    }
     const t = ctx(cand.id);
     // Landing position: the same origin, grid snap, and edge-contact
     // resolution the mid-drag ghost used, so the cell lands exactly where
@@ -759,22 +766,19 @@ function finishDrag(clientX, clientY, draggedId, grabDX, grabDY) {
   select(draggedId);
 }
 
-/** A 親 can't be dragged, but it still selects on click. */
-function attachSelectOnly(box, cell) {
-  box.addEventListener("pointerdown", (e) => {
-    if (e.button !== 0) return;
-    if (e.target.closest(".editing")) return;
-    if (e.target.closest(".resize-handle, .face-btn")) return;
-    e.stopPropagation();
-    closeMenu();
-    if (editing) commitEdit();
-    select(cell.id);
-  });
-}
-
 // ---- board-level events --------------------------------------------------------------
 
-// A right-click that lands on a cell is handled (and stopped) by that cell's
+// A left-click on the bare board (a card stops its own pointerdown from
+// bubbling) selects the board — the 親, the context a new 子 is added to.
+boardEl.addEventListener("pointerdown", (e) => {
+  if (e.button !== 0) return;
+  if (e.target.closest(".cell-box")) return;
+  closeMenu();
+  if (editing) commitEdit();
+  select(board.id);
+});
+
+// A right-click that lands on a card is handled (and stopped) by that card's
 // own flip listener, so this only fires for the bare board.
 boardEl.addEventListener("contextmenu", (e) => {
   e.preventDefault();
@@ -793,9 +797,12 @@ boardEl.addEventListener("keydown", (e) => {
   }
   const c = ctx(selectedId);
   // The keyboard edits whatever the selected card currently shows: the name
-  // when flipped, the value when it's a leaf front. (A non-leaf front shows
-  // children — nothing of its own to type into.)
-  const field = c?.cell.flipped ? "name" : (c && c.cell.children.length === 0 ? "value" : null);
+  // when flipped, the value when it's a leaf front. A non-leaf front shows
+  // children, and the board is not a card — neither has anything to type into.
+  const field = !c || c.cell === board ? null
+    : c.cell.flipped ? "name"
+    : c.cell.children.length === 0 ? "value"
+    : null;
   switch (e.key) {
     case "ArrowUp": case "ArrowDown": case "ArrowLeft": case "ArrowRight":
       e.preventDefault(); moveSelection(e.key); break;
@@ -839,7 +846,7 @@ latexToggleEl.addEventListener("change", () => {
   renderBoard();
 });
 
-// ---- board context menu ("add a 親 cell") ---------------------------------------------
+// ---- board context menu (add a 子 to the workbench) -----------------------------------
 
 let ctxMenu = null;
 
@@ -850,9 +857,10 @@ function closeMenu() {
 
 function openBoardMenu(clientX, clientY) {
   closeMenu();
+  select(board.id);
   const menu = el("div", "ctx-menu");
-  const item = el("button", "ctx-item", "親セルを追加");
-  item.addEventListener("click", () => { addParent(); closeMenu(); focusBoard(); });
+  const item = el("button", "ctx-item", "子セルを追加");
+  item.addEventListener("click", () => { addChild(board.id); closeMenu(); focusBoard(); });
   menu.append(item);
   menu.addEventListener("keydown", (e) => {
     if (e.key === "Escape") { e.preventDefault(); closeMenu(); focusBoard(); }
@@ -866,5 +874,8 @@ function openBoardMenu(clientX, clientY) {
 // ---- boot ------------------------------------------------------------------------------
 
 renderBoard();
-select(doc.roots[0].id);
+select(board.id);
 focusBoard();
+
+// Keep the board's scroll area in step with the viewport as it resizes.
+window.addEventListener("resize", fitBoard);
