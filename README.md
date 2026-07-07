@@ -9,18 +9,19 @@ plant, continuing Ajisai's (hydrangea) botanical lineage.
 ## Playground
 
 A live playground is published to GitHub Pages from `web/` (a build-free static site).
-Viscaria is heading toward a **drawing program with formulas**: the shell is a
-**five-level nested-cell** board — a parent cell (親, level 1) holds child cells (子),
-which hold grandchildren (孫), then great-grandchildren (ひ孫), then
-great-great-grandchildren (玄孫). Every cell is a **two-faced card**: the front of a leaf
-cell is its value (double-click to edit, centered by default), while a cell with children
-shows the children themselves, filling the card; right-click a selected cell to flip it
-over to the back, where its **name** lives (double-click to rename) along with the
-add-child/delete controls. Every cell but a parent moves by drag & drop: positions snap
-to the background grid, and shoving a cell **into** a sibling snaps their edges flush —
-cells tile into tables — while merely coming near leaves the grid in charge. Drop onto a
-cell's interior to nest there (five-level cap enforced); drop onto the empty board to
-promote to a parent. Every cell resizes by its corner handle.
+Viscaria is heading toward a **drawing program with formulas**. The board itself is the
+**parent cell** (親, level 1) — the workbench, empty to start. The cards you place on it
+are child cells (子, level 2), which hold grandchildren (孫), then great-grandchildren
+(ひ孫), then great-great-grandchildren (玄孫): **five levels counting the board**. Every
+card is **two-faced**: the front of a leaf cell is its value (double-click to edit,
+centered by default), while a card with children shows the children themselves, filling
+the card; right-click a selected card to flip it over to the back, where its **name** lives
+(double-click to rename) along with the add-child/delete controls. Right-click the bare
+board to add a 子. Every card moves by drag & drop: positions snap to the background grid,
+and shoving a card **into** a sibling snaps their edges flush — cards tile into tables —
+while merely coming near leaves the grid in charge. Drop onto a card's interior to nest
+there, or onto the bare board to make it a top-level 子 (five-level cap enforced). Every
+card resizes by its corner handle.
 
 Numbers already follow Ajisai: a committed numeric value normalizes to the **canonical
 reduced fraction** (`6/2` → `3/1`, `0.5` → `1/2`) with exact BigInt arithmetic — no
