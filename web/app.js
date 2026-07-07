@@ -27,13 +27,13 @@
 // snap to a visible dot grid, and every cell has a corner resize handle,
 // since a cell's size is what makes room to build cells inside it.
 //
-// The Ajisai model is kept: everything is internally an exact real (a
-// continued fraction, handled by the Rust core; wired through WASM in a later
-// slice), and the human-facing surface — the raw text a cell shows — is
-// separate from that internal representation. In Viscaria the cell itself
-// plays the role that the Input area, the stack area, and the Output area
-// play in classic Ajisai. Raw text is deliberately *not* evaluated in JS
-// floats here, because exactness is the whole point.
+// Viscaria keeps the exact-real model it inherits from Ajisai: everything is
+// internally an exact real (a continued fraction, handled by the Rust core;
+// wired through WASM in a later slice), and the human-facing surface — the
+// raw text a cell shows — is separate from that internal representation. In
+// Viscaria the cell itself plays the role that the Input area, the stack
+// area, and the Output area play in classic Ajisai. Raw text is deliberately
+// *not* evaluated in JS floats here, because exactness is the whole point.
 
 const MAX_DEPTH = 5;
 // Positional level labels (階層1..5) — the breadcrumb fallback for unnamed cells.

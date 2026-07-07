@@ -3,13 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="Viscaria Language Specification - the single canonical design authority for the table-oriented Ajisai language">
+    <meta name="description" content="Viscaria Language Specification - the single canonical design authority for the Viscaria language, the table-oriented redesign of Ajisai">
     <title>Viscaria Language Specification</title>
 
     <!--
       Authoring rule (docs/dev/ajisai-authoring-style.md): the specification is
       authored directly in HTML, not Markdown. Keep this page plain.
-      - Every Ajisai token is wrapped in <code> (gray background = Ajisai channel).
+      - Every Viscaria token is wrapped in <code> (gray background = Viscaria channel).
       - Mathematics is set off in its own channel, typeset as LaTeX with
         \( ... \) inline and \[ ... \] display delimiters. Without JavaScript
         the raw LaTeX source remains visible (machine-readable fallback).
@@ -55,12 +55,15 @@
 
 <h1 id="viscaria-language-specification">Viscaria Language Specification</h1>
 
-<p>Viscaria is the table-oriented Ajisai: an AI-first, exact-real spreadsheet
-language. This document is the single canonical design authority for the language. It
-descends from the vector-oriented Ajisai (the Ajisai repository), which is retained there
-for historical reference; the migration inventory is in Section 15. The language itself is
-still named <strong>Ajisai</strong> throughout this specification; <em>Viscaria</em> is the
-name of this project and its application.</p>
+<p><strong>Viscaria</strong> is an AI-first, table-oriented, exact-real spreadsheet
+language, and this document is the single canonical design authority for it. Viscaria is an
+<strong>independent language</strong>, named and specified in its own right throughout this
+document. It descends from the vector-oriented <strong>Ajisai</strong> (the Ajisai
+repository), which is retained there for historical reference, and it deliberately reuses
+Ajisai's mechanisms — the exact-real continued-fraction kernel and the
+NIL / U / <code>QUANTIZE</code> / <code>CONSERVE</code> semantics — carrying them forward
+without inheriting the name. The migration inventory from the Ajisai predecessor is in
+Section 15.</p>
 
 <h2>Contents</h2>
 <ol>
@@ -85,7 +88,7 @@ name of this project and its application.</p>
 
 <h2 id="1-language-identity">1. Language Identity</h2>
 
-<p>Ajisai is an <strong>AI-first, table-oriented, exact-real spreadsheet language</strong>.</p>
+<p>Viscaria is an <strong>AI-first, table-oriented, exact-real spreadsheet language</strong>.</p>
 
 <p>A program is a <strong>document</strong>: a set of named finite <strong>tables</strong> laid out on
 canvases, together with a user <strong>word dictionary</strong>. Evaluation is
@@ -111,7 +114,7 @@ representation directly, without intermediate rounding.</p>
 <li>TypeScript GUI/runtime shell (grid presentation, editing, persistence)</li>
 </ul>
 
-<p>Ajisai is designed for mechanical reasoning, automated refactoring, and structurally
+<p>Viscaria is designed for mechanical reasoning, automated refactoring, and structurally
 searchable implementation. The dependency graph, cell diagnostics, and formula bodies are
 machine-readable at all times; an AI agent can read and repair a document without
 screen-scraping the grid.</p>
@@ -124,9 +127,9 @@ mechanisms of this document in Appendix A.</p>
 
 <h3 id="21-canonical">2.1 Canonical</h3>
 
-<p>This document is the single canonical design authority for the Ajisai language as
-implemented by Viscaria: value model, formula semantics, table model, recalculation
-semantics, error model, and conformance requirements. Statements elsewhere
+<p>This document is the single canonical design authority for the Viscaria language: value
+model, formula semantics, table model, recalculation semantics, error model, and
+conformance requirements. Statements elsewhere
 (README, Reference, <code>docs/dev/</code>, code comments) are non-canonical.</p>
 
 <h3 id="22-non-canonical">2.2 Non-canonical</h3>
@@ -216,7 +219,7 @@ its equality is codepoint equality.</p>
 <h3 id="34-serialized-forms-are-not-source-syntax">3.4 Serialized and display forms are not source syntax</h3>
 
 <p>The bracket continued-fraction serialization of Section 4.2.3 and every truncated
-display form are output surfaces only. They are not Ajisai source syntax, must not appear
+display form are output surfaces only. They are not Viscaria source syntax, must not appear
 in formulas, and must not be parsed back as values.</p>
 
 <h3 id="35-cell-and-range-references">3.5 Cell and range references</h3>
@@ -361,7 +364,7 @@ display is non-canonical and must not be parsed back as an exact value.</p>
 
 <p>Parentheses are <strong>reserved for the infix surface</strong> (grouping and
 function-call syntax, Section 3.6) and never appear in the CF serialization. The bracket
-form is <strong>not</strong> Ajisai source syntax (Section 3.4) and cannot collide with
+form is <strong>not</strong> Viscaria source syntax (Section 3.4) and cannot collide with
 the column-reference forms of Section 3.5, which occur only in formulas while the CF form
 occurs only in output surfaces. It appears only in display and serialization output under
 the <code>ContinuedFraction</code> interpretation role (Section 12.2) and in AI-targeted
@@ -413,7 +416,7 @@ budget</strong>: a budget term, and hence an <code>agreedPrefix</code> count
 
 <h4 id="426-numeric-error-policy">4.2.6 Numeric error policy</h4>
 
-<p>Ajisai's exactness requirement is not limited to avoiding floating-point rounding
+<p>Viscaria's exactness requirement is not limited to avoiding floating-point rounding
 error. A conforming implementation must not silently turn numeric work into hidden value
 corruption through information loss, loss of significance, cancellation, truncation
 error, or overflow.</p>
@@ -646,7 +649,7 @@ in that column. It is the table-oriented successor of the previous canon's
 <p>A table may declare one or more columns as <strong>parameter columns</strong>. A table
 with at least one parameter column is a <strong>function table</strong>: it defines a pure
 function whose arguments are the parameter columns in left-to-right column order.
-Defining an n-ary function in Ajisai means building a table with n parameter columns —
+Defining an n-ary function in Viscaria means building a table with n parameter columns —
 there is no lambda form and no variable binding in the formula language
 (<code>docs/dev/ajisai-functional-foundations.md</code>, non-normative rationale).</p>
 

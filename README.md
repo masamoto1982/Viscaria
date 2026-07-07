@@ -82,7 +82,10 @@ engine, WASM boundary, and GUI are the next phases
 
 ## Relationship to Ajisai
 
-Viscaria is a breaking redesign, not a fork of Ajisai's runtime. It reuses Ajisai's
-exact-real continued-fraction kernel and inherits its NIL/Unknown/QUANTIZE/CONSERVE
-semantics; it drops vector orientation entirely. The language is still called *Ajisai* in
-the specification; *Viscaria* names this project and its application.
+Viscaria is now an **independent language**, named and specified as *Viscaria* in its own
+right (see [`SPECIFICATION.html`](SPECIFICATION.html)) — no longer "the table-oriented
+Ajisai". It descends from Ajisai as a breaking redesign, not a fork of its runtime, and it
+**continues to reuse Ajisai's mechanisms**: the exact-real continued-fraction kernel, the
+NIL/Unknown/QUANTIZE/CONSERVE semantics, and GUI approaches like the fraction/LaTeX math
+view. It drops vector orientation entirely. Ajisai remains the acknowledged upstream we
+borrow from; that reuse is expected to continue.
