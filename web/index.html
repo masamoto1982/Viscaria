@@ -11,25 +11,39 @@
   <script defer src="./vendor/katex/katex.min.js"></script>
 </head>
 <body>
+  <!-- Header (Ajisai's layout): logo · title · version on the left, the
+       Reference link on the right. -->
   <header class="app-bar">
-    <h1 class="brand">Viscaria</h1>
+    <a class="brand-block" href="./" aria-label="Viscaria">
+      <!-- Logo placeholder: drop the QR image in at web/images/logo.png (see
+           web/images/README.md); the neutral square shows until then. -->
+      <img class="logo" src="./images/logo.png" alt="" aria-hidden="true">
+      <h1 class="brand">Viscaria</h1>
+    </a>
     <!-- Timestamp version badge (Ajisai's scheme): ver.YYYYMMDDHHMM, the
          build/release time, stamped at deploy and filled in by app.js. -->
     <span class="version" id="version">ver.loading…</span>
-    <p class="tagline">table-oriented · exact-real spreadsheet</p>
-    <!-- Paper controls for the active sheet: size (A3–B5) and orientation. -->
+    <!-- Reference page link (page comes later; this places the button). -->
+    <a class="btn reference" href="./reference.html" target="_blank" rel="noopener noreferrer">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+        <path d="M9 9h6v6M15 9l-6 6M5 3h14a2 2 0 012 2v14a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2z"/>
+      </svg>
+      Reference
+    </a>
+  </header>
+
+  <!-- Tool bar (first thin strip under the header): paper size + orientation
+       for the active sheet, and the math (LaTeX) view toggle. -->
+  <div class="tool-bar">
     <label class="paper-ctl">用紙
       <select id="paper-size" aria-label="Paper size"></select>
     </label>
     <button id="paper-orient" class="paper-orient" type="button" aria-label="Paper orientation">縦</button>
-    <!-- Math view toggle (Ajisai's Stack-area checkbox, relocated to the app
-         bar since in Viscaria the cells themselves are the stack area).
-         Checked = KaTeX rendering of numeric values; unchecked = the
-         canonical fraction strings. -->
     <label class="latex-toggle"><input type="checkbox" id="latex-toggle">LaTeX</label>
-  </header>
+  </div>
 
-  <!-- Formula bar: breadcrumb path box · fx · value field for the selected cell. -->
+  <!-- Formula bar (second thin strip): breadcrumb path · fx · value field for
+       the selected cell. -->
   <div class="formula-bar">
     <input id="name-box" class="name-box" aria-label="Selected cell path" spellcheck="false" autocomplete="off" readonly>
     <span class="fx" aria-hidden="true">fx</span>
