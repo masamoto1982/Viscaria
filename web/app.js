@@ -340,6 +340,7 @@ const paperSelect = document.getElementById("paper-size");
 const orientBtn = document.getElementById("paper-orient");
 
 let paperEl = null; // the current .paper element (positioning context for 親)
+let viewScale = 1; // paper→screen scale (< 1 when the paper is shrunk to fit a phone)
 let selectedId = null; // nothing selected until a card is clicked
 let editing = null; // { id, field: "value" | "name" } while an in-cell edit is live
 
@@ -373,8 +374,36 @@ function renderBoard() {
   paperEl.style.width = `${pw}px`;
   paperEl.style.height = `${ph}px`;
   for (const child of paperRoot().children) paperEl.append(buildCell(child, 1));
-  boardEl.replaceChildren(paperEl);
+  // The paper sits in a wrapper sized to its (possibly scaled) footprint, so a
+  // narrow screen can shrink the paper to fit while centering and scrolling
+  // stay correct.
+  const wrap = el("div", "paper-wrap");
+  wrap.append(paperEl);
+  boardEl.replaceChildren(wrap);
+  fitPaperToWidth(pw, ph, wrap);
   renderSelection();
+}
+
+/** Fit the paper to the board's width on a narrow screen (Apple Numbers on a
+ *  phone): scale it down uniformly so its whole width shows, and size the
+ *  wrapper to the scaled footprint. `viewScale` is 1 on a wide screen — the
+ *  paper is left untransformed, so the drag ghost (a fixed element) sees no
+ *  transformed ancestor and the desktop path is byte-identical. Below 1, every
+ *  pointer↔model conversion in the drag/resize code divides or multiplies by
+ *  `viewScale` to bridge screen (scaled) and logical (unscaled) coordinates. */
+function fitPaperToWidth(pw, ph, wrap) {
+  const avail = boardEl.clientWidth;
+  viewScale = avail > 0 ? Math.min(1, avail / pw) : 1;
+  if (viewScale < 1) {
+    paperEl.style.transformOrigin = "top left";
+    paperEl.style.transform = `scale(${viewScale})`;
+    wrap.style.width = `${Math.round(pw * viewScale)}px`;
+    wrap.style.height = `${Math.round(ph * viewScale)}px`;
+  } else {
+    paperEl.style.transform = "";
+    wrap.style.width = `${pw}px`;
+    wrap.style.height = `${ph}px`;
+  }
 }
 
 function buildCell(cell, depth) {
@@ -592,8 +621,9 @@ function attachResize(handle, box, cell) {
     handle.setPointerCapture(e.pointerId);
 
     const onMove = (ev) => {
-      cell.w = Math.max(minW, snap(origW + (ev.clientX - startX)));
-      cell.h = Math.max(minH, snap(origH + (ev.clientY - startY)));
+      // Pointer deltas are screen px; divide by viewScale to get paper px.
+      cell.w = Math.max(minW, snap(origW + (ev.clientX - startX) / viewScale));
+      cell.h = Math.max(minH, snap(origH + (ev.clientY - startY) / viewScale));
       box.style.width = `${cell.w + BORDER}px`; // +border to match buildCell
       box.style.height = `${cell.h + BORDER}px`;
     };
@@ -729,6 +759,15 @@ function attachDrag(box, cell) {
         dragging = true;
         box.classList.add("dragging");
         box.style.position = "fixed";
+        // When the paper is scaled to fit a phone, the ghost must escape the
+        // paper's transform (a transformed ancestor is the containing block
+        // for a fixed element) — reparent it to the body and scale it itself,
+        // so it stays viewport-positioned and matches the on-paper cell size.
+        if (viewScale < 1) {
+          document.body.append(box);
+          box.style.transformOrigin = "top left";
+          box.style.transform = `scale(${viewScale})`;
+        }
         box.style.left = `${rect.left}px`;
         box.style.top = `${rect.top}px`;
         box.style.pointerEvents = "none"; // elementFromPoint must see beneath it
@@ -739,16 +778,22 @@ function attachDrag(box, cell) {
       highlightDropTarget(valid ? cand : null);
       // Over a valid target — a card or the bare paper — the ghost sticks to
       // that target's grid and kisses sibling edges on contact, so the drag
-      // itself snaps, not just the release.
+      // itself snaps, not just the release. Screen offsets divide by viewScale
+      // to reach logical (paper) coords; the snapped logical position multiplies
+      // back to screen for the ghost.
       let left = ev.clientX - grabDX;
       let top = ev.clientY - grabDY;
       if (valid) {
         const origin = dropOriginRect(cand.id);
         const target = ctx(cand.id)?.cell;
         if (origin && target) {
-          const p = resolveCellPlacement(target, cell, left - origin.left, top - origin.top);
-          left = origin.left + p.x;
-          top = origin.top + p.y;
+          const p = resolveCellPlacement(
+            target, cell,
+            (left - origin.left) / viewScale,
+            (top - origin.top) / viewScale,
+          );
+          left = origin.left + p.x * viewScale;
+          top = origin.top + p.y * viewScale;
         }
       }
       box.style.left = `${left}px`;
@@ -760,6 +805,9 @@ function attachDrag(box, cell) {
       if (!dragging) { select(cell.id); return; }
       box.releasePointerCapture(e.pointerId);
       clearDropHighlight();
+      // Discard a ghost that was reparented to the body (renderBoard rebuilds
+      // only the board's own subtree, so it wouldn't be swept up otherwise).
+      if (box.parentElement === document.body) box.remove();
       finishDrag(ev.clientX, ev.clientY, cell.id, grabDX, grabDY);
     };
     box.addEventListener("pointermove", onMove);
@@ -780,8 +828,8 @@ function finishDrag(clientX, clientY, draggedId, grabDX, grabDY) {
     if (originRect) {
       const p = resolveCellPlacement(
         t.cell, moved,
-        clientX - grabDX - originRect.left,
-        clientY - grabDY - originRect.top,
+        (clientX - grabDX - originRect.left) / viewScale,
+        (clientY - grabDY - originRect.top) / viewScale,
       );
       moved.x = p.x;
       moved.y = p.y;
@@ -1035,3 +1083,11 @@ renderTabs();
 syncPaperControls();
 renderBoard();
 focusBoard();
+
+// Recompute the fit-to-width scale when the viewport changes (resize, rotate).
+// Re-rendering is cheapest and keeps positions consistent; skip mid-edit.
+let resizeTimer = 0;
+window.addEventListener("resize", () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => { if (!editing) renderBoard(); }, 100);
+});
