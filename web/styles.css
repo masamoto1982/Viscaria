@@ -237,13 +237,20 @@
     outline: none;
   }
 
+  /* The paper's wrapper: sized by app.js to the paper's (possibly scaled)
+     footprint and centered, so shrinking the paper to fit a phone keeps
+     centering and scrolling correct. */
+  .paper-wrap {
+    margin: 0 auto;
+  }
+
   /* A sheet of paper — a fixed-size WYSIWYG page (dimensions set by app.js from
      the sheet's size + orientation). It is the positioning context for its 親
      cells and an invisible 16px snap grid; dragging a card makes the snapping
-     legible without drawn dots. Right-click it to add a 親 (see .ctx-menu). */
+     legible without drawn dots. On a narrow screen app.js scales it (transform)
+     to fit the width. Right-click it to add a 親 (see .ctx-menu). */
   .paper {
     position: relative;
-    margin: 0 auto;
     background: var(--surface);
     border: 1px solid var(--line-strong);
     box-shadow: 0 2px 14px oklch(0% 0 0 / 0.16);

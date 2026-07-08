@@ -23,7 +23,9 @@ Right-click the bare paper to add a 親. Every card moves by drag & drop: positi
 16px grid (invisible), and shoving a card **into** a sibling snaps their edges flush — cards
 tile into tables — while merely coming near leaves the grid in charge. Drop onto a card's
 interior to nest there, or onto the bare paper to make it a top-level 親 (five-level cap
-enforced). Every card resizes by its corner handle. Cross-sheet value references
+enforced). Every card resizes by its corner handle. On a narrow screen the paper scales to
+fit the width (portrait paper suits a phone held upright, landscape a phone held sideways),
+and drag/resize stay accurate through the scale. Cross-sheet value references
 (`=SheetName!cellName`, Google Sheets style) are the next slice.
 
 Numbers already follow Ajisai: a committed numeric value normalizes to the **canonical
