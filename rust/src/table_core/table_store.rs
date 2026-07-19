@@ -76,10 +76,7 @@ impl FromStr for CellAddress {
 
     fn from_str(raw: &str) -> Result<Self, Self::Err> {
         let raw = raw.trim();
-        let letter_count = raw
-            .bytes()
-            .take_while(|b| b.is_ascii_alphabetic())
-            .count();
+        let letter_count = raw.bytes().take_while(|b| b.is_ascii_alphabetic()).count();
         if letter_count == 0 || letter_count == raw.len() {
             return Err(StoreError::InvalidAddress(raw.to_owned()));
         }
@@ -184,11 +181,14 @@ impl Table {
     }
 
     pub fn cell(&self, address: CellAddress) -> Option<&Cell> {
-        self.index_of(address).and_then(|index| self.cells.get(index))
+        self.index_of(address)
+            .and_then(|index| self.cells.get(index))
     }
 
     pub fn cell_by_id(&self, id: CellId) -> Option<&Cell> {
-        self.cell_positions.get(&id).and_then(|index| self.cells.get(*index))
+        self.cell_positions
+            .get(&id)
+            .and_then(|index| self.cells.get(*index))
     }
 
     pub fn address_of(&self, id: CellId) -> Option<CellAddress> {
@@ -226,14 +226,20 @@ impl Table {
 /// Errors are explicit because silent reference drift is forbidden.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StoreError {
-    InvalidDimensions { rows: usize, columns: usize },
+    InvalidDimensions {
+        rows: usize,
+        columns: usize,
+    },
     InvalidName(String),
     InvalidAddress(String),
     DuplicateTableName(String),
     DuplicateCellName(String),
     TableNotFound(TableId),
     CellNotFound(CellId),
-    CellOutOfBounds { table: TableId, address: CellAddress },
+    CellOutOfBounds {
+        table: TableId,
+        address: CellAddress,
+    },
     UnknownTableReference(String),
     UnknownCellReference(String),
     CannotShrink {
@@ -352,7 +358,8 @@ impl DocumentStore {
     }
 
     pub fn table_by_name(&self, name: &str) -> Result<&Table, StoreError> {
-        let canonical = normalize_name(name).ok_or_else(|| StoreError::InvalidName(name.to_owned()))?;
+        let canonical =
+            normalize_name(name).ok_or_else(|| StoreError::InvalidName(name.to_owned()))?;
         let id = self
             .table_names
             .get(&canonical)
@@ -472,12 +479,13 @@ impl DocumentStore {
         let new_name = name.map(validate_cell_name).transpose()?;
         let new_key = new_name.as_deref().and_then(normalize_name);
         let table_index = self.table_index(table_id)?;
-        let cell_index = self.tables[table_index]
-            .index_of(address)
-            .ok_or(StoreError::CellOutOfBounds {
-                table: table_id,
-                address,
-            })?;
+        let cell_index =
+            self.tables[table_index]
+                .index_of(address)
+                .ok_or(StoreError::CellOutOfBounds {
+                    table: table_id,
+                    address,
+                })?;
         let cell_id = self.tables[table_index].cells[cell_index].id;
 
         if let Some(key) = &new_key {
@@ -571,12 +579,13 @@ impl DocumentStore {
         address: CellAddress,
     ) -> Result<&mut Cell, StoreError> {
         let table_index = self.table_index(table_id)?;
-        let cell_index = self.tables[table_index]
-            .index_of(address)
-            .ok_or(StoreError::CellOutOfBounds {
-                table: table_id,
-                address,
-            })?;
+        let cell_index =
+            self.tables[table_index]
+                .index_of(address)
+                .ok_or(StoreError::CellOutOfBounds {
+                    table: table_id,
+                    address,
+                })?;
         Ok(&mut self.tables[table_index].cells[cell_index])
     }
 
@@ -688,7 +697,11 @@ mod tests {
         let table = store.table(table_id).unwrap();
         assert_eq!(table.cell("B2".parse().unwrap()).unwrap().id(), before);
         assert_eq!(table.address_of(before).unwrap().to_string(), "B2");
-        assert!(table.cell("C4".parse().unwrap()).unwrap().value().is_empty());
+        assert!(table
+            .cell("C4".parse().unwrap())
+            .unwrap()
+            .value()
+            .is_empty());
     }
 
     #[test]
@@ -700,16 +713,20 @@ mod tests {
             .set_cell_name(input, "B1".parse().unwrap(), Some("Total"))
             .unwrap();
 
-        let bound = store
-            .resolve_cell_reference(report, "input.total")
-            .unwrap();
-        assert_eq!(store.render_reference(report, bound).unwrap(), "INPUT.Total");
+        let bound = store.resolve_cell_reference(report, "input.total").unwrap();
+        assert_eq!(
+            store.render_reference(report, bound).unwrap(),
+            "INPUT.Total"
+        );
 
         store.rename_table(input, "Source").unwrap();
         store
             .set_cell_name(input, "B1".parse().unwrap(), Some("GrandTotal"))
             .unwrap();
-        assert_eq!(store.render_reference(report, bound).unwrap(), "SOURCE.GrandTotal");
+        assert_eq!(
+            store.render_reference(report, bound).unwrap(),
+            "SOURCE.GrandTotal"
+        );
         assert_eq!(store.cell(bound).unwrap().id(), bound.cell_id());
     }
 
